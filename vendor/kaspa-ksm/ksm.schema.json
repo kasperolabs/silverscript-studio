@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://silverscript.studio/schema/ksm-1.json",
+  "title": "Kaspa Spend Map (.ksm), version 1",
+  "description": "Everything needed to verify and spend one Kaspa P2SH covenant without the service that created it. See KSM.md.",
+  "type": "object",
+  "required": ["ksm", "network", "address", "script", "entries"],
+  "properties": {
+    "ksm": { "const": 1 },
+    "network": { "enum": ["mainnet", "testnet-10", "testnet-11", "testnet-12", "simnet", "devnet"] },
+    "address": { "type": "string", "pattern": "^kaspa(test|sim|dev)?:p[02-9ac-hj-np-z]+$" },
+    "name": { "type": "string" },
+    "script": {
+      "type": "object",
+      "required": ["hex"],
+      "properties": {
+        "hex": { "$ref": "#/$defs/hex", "minLength": 2 },
+        "hash": { "$ref": "#/$defs/hex32" }
+      }
+    },
+    "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/entry" } },
+    "constructorArgs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "value"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "$ref": "#/$defs/type" },
+          "value": { "type": ["string", "number", "boolean"] }
+        }
+      }
+    },
+    "parties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "pubkey"],
+        "properties": {
+          "role": { "type": "string" },
+          "pubkey": { "$ref": "#/$defs/hex32" },
+          "address": { "type": "string" },
+          "creator": { "type": "boolean" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "language": { "type": "string", "default": "silverscript" },
+        "contract": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "compiler": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "ref": { "type": "string" },
+        "abiSchema": {},
+        "templateHash": { "$ref": "#/$defs/hex" }
+      }
+    },
+    "funding": {
+      "type": "object",
+      "properties": {
+        "expected": {
+          "type": "object",
+          "properties": { "sompi": { "$ref": "#/$defs/uint" }, "from": { "type": "string" } }
+        },
+        "deposits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["txid"],
+            "properties": {
+              "txid": { "$ref": "#/$defs/hex32" },
+              "index": { "type": "integer", "minimum": 0 },
+              "sompi": { "$ref": "#/$defs/uint" }
+            }
+          }
+        }
+      }
+    },
+    "created": {
+      "type": "object",
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "by": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    },
+    "extensions": { "type": "object" }
+  },
+  "$defs": {
+    "hex": { "type": "string", "pattern": "^([0-9a-f]{2})*$" },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uint": { "type": "string", "pattern": "^[0-9]+$" },
+    "type": { "type": "string", "pattern": "^(int|bool|byte|temporal|pubkey|sig|datasig|string|byte\\[\\]|byte\\[[0-9]+\\])$" },
+    "entry": {
+      "type": "object",
+      "required": ["name", "params", "dispatch"],
+      "properties": {
+        "name": { "type": "string" },
+        "params": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": { "name": { "type": "string" }, "type": { "type": "string" } }
+          }
+        },
+        "dispatch": {
+          "oneOf": [
+            { "type": "object", "required": ["kind", "hex"], "properties": { "kind": { "const": "tag" }, "hex": { "type": "string", "pattern": "^[0-9a-f]{8}$" } } },
+            { "type": "object", "required": ["kind", "n"], "properties": { "kind": { "const": "selector" }, "n": { "type": "integer", "minimum": 0, "maximum": 16 } } },
+            { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "none" } } }
+          ]
+        },
+        "locks": {
+          "type": "object",
+          "properties": {
+            "cltv": { "type": "array", "items": { "$ref": "#/$defs/uint" } },
+            "csv": { "type": "array", "items": { "$ref": "#/$defs/uint" } }
+          }
+        },
+        "sigOps": { "type": "integer", "minimum": 1 },
+        "payTo": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "required": ["kind", "pubkey"], "properties": { "kind": { "const": "p2pk" }, "pubkey": { "$ref": "#/$defs/hex32" } } }
+          ]
+        },
+        "signers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["sig", "key"],
+            "properties": {
+              "sig": { "type": "string" },
+              "key": { "type": "string" },
+              "pubkey": { "$ref": "#/$defs/hex32" },
+              "open": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

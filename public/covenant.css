@@ -1,0 +1,181 @@
+/* BUILD MARKER: covenant-page-2026-09-25c-gold */
+/* Covenant page (/c/<token>). Tokens come from style.css; this file only styles the page. */
+
+:root, [data-theme="dark"] { --accent-deep: #6e5a24; --press: #0a0b10; --push-bg: var(--accent); --push-fg: #fff; --push-hover: var(--accent-dim); }
+/* Light: the text accent (#9a7c2e) is olive as a fill, so the button gets its own
+   gold with dark text (contrast 7.7:1) and the olive moves to the edge and press shadow */
+[data-theme="light"]      { --accent-deep: #a8832d; --press: #b9bcc6; --push-bg: #d9ad48; --push-fg: #1a1c24; --push-hover: #cfa23c; }
+
+body.cv-page { font-size: 14px; }
+.cv-page code, .cv-page .mono { font-family: 'JetBrains Mono', monospace; }
+.cv-page button { font: inherit; color: inherit; cursor: pointer; }
+
+/* ── Header: brand left, identity right ─────────────────────────── */
+.cv-top { height: 48px; gap: 12px; }
+.cv-me { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.cv-me .role {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px 3px 6px;
+  background: var(--bg-tertiary); color: var(--text-primary); font-weight: 500;
+}
+.cv-me .role .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.cv-me .role .dot.off { background: var(--text-muted); }
+.cv-me .addr { color: var(--text-secondary); }
+.cv-me .ghost {
+  background: none; border: 1px solid var(--border); color: var(--text-secondary);
+  border-radius: 6px; padding: 5px 10px; font-size: 12px;
+}
+.cv-me .ghost:hover { border-color: var(--text-muted); color: var(--text-primary); }
+.cv-page #themeToggle { margin-left: 2px; }
+
+/* ── Tactile buttons: one gold per state, everything else quiet ──── */
+.push {
+  position: relative; top: 0; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  border-radius: 12px; padding: 14px 22px; font-weight: 600; font-size: 15px;
+  border: 1px solid var(--accent-deep); background: var(--push-bg); color: var(--push-fg);
+  box-shadow: 0 4px 0 0 var(--accent-deep);
+  transition: top .08s ease, box-shadow .08s ease, background .12s;
+}
+.push:hover { top: -1px; box-shadow: 0 5px 0 0 var(--accent-deep); background: var(--push-hover); }
+.push:active { top: 3px; box-shadow: 0 1px 0 0 var(--accent-deep); }
+.push:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
+.push:disabled { opacity: .55; cursor: default; top: 0; box-shadow: 0 4px 0 0 var(--accent-deep); }
+.push.full { width: 100%; }
+.push .amt { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.push.quiet {
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border-color: var(--border); box-shadow: 0 4px 0 0 var(--press);
+  font-size: 13px; padding: 10px 16px; border-radius: 10px;
+}
+.push.quiet:hover { background: var(--bg-hover); box-shadow: 0 5px 0 0 var(--press); }
+.push.quiet:active { box-shadow: 0 1px 0 0 var(--press); }
+.push.quiet:disabled { box-shadow: 0 4px 0 0 var(--press); }
+.push + .push { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { .push, .push:hover, .push:active { transition: none; top: 0; } }
+
+/* ── Page ───────────────────────────────────────────────────────── */
+.cv-main { max-width: 680px; margin: 0 auto; padding: 36px 16px 48px; }
+.cv-title { text-align: center; margin-bottom: 22px; }
+.cv-title h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.cv-title .sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+.cv-title .sub b { color: var(--text-primary); font-weight: 500; }
+
+/* The one card that answers the one question */
+.state {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px;
+  padding: 28px 28px 26px; box-shadow: var(--shadow); text-align: center;
+}
+.state .mark {
+  width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.state.ready .mark { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
+.state.done .mark { color: var(--success); }
+.state h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.state p.lead { color: var(--text-secondary); font-size: 15px; margin: 10px auto 0; max-width: 46ch; }
+.state p.lead b { color: var(--text-primary); font-weight: 500; }
+.state .act { margin-top: 22px; }
+.state .note { margin-top: 12px; font-size: 12px; color: var(--text-muted); }
+.state .note a { color: var(--text-secondary); }
+
+.figure { font-family: 'JetBrains Mono', monospace; font-size: 40px; font-weight: 600; letter-spacing: -0.02em; margin-top: 6px; }
+.figure small { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; color: var(--text-secondary); letter-spacing: 0; }
+
+/* Withdraw flow, rendered inside .state .act (left aligned, the card stays centered) */
+.cv-flow { text-align: left; margin: 0 auto; max-width: 520px; }
+.cv-flow .deploy-field { margin-bottom: 10px; }
+.cv-flow .deploy-input { width: 100%; }
+.cv-flow-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.cv-flow-actions .push + .push { margin-top: 0; }
+.cv-receipt {
+  padding: 16px 18px; border: 1px solid var(--accent-dim); border-radius: 12px; background: var(--accent-bg);
+}
+.cv-receipt .big { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 600; text-align: center; }
+.cv-receipt .big .ok { display: inline-flex; vertical-align: middle; color: var(--success); margin-right: 6px; }
+.cv-receipt .big small { font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+.cv-receipt .row { display: flex; gap: 10px; font-size: 12.5px; padding: 5px 0; border-top: 1px solid var(--border-subtle); }
+.cv-receipt .row:first-of-type { border-top: 0; margin-top: 10px; }
+.cv-receipt .row .k { flex: 0 0 76px; color: var(--text-muted); }
+.cv-receipt .row .v { flex: 1; word-break: break-all; }
+.cv-receipt .row .v code { font-size: 11.5px; }
+.cv-flow .redeem-error-screen { margin: 0; }
+.cv-flow .deploy-hint { margin-top: 10px; }
+
+/* ── Evidence folds ─────────────────────────────────────────────── */
+.folds { margin-top: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-secondary); }
+/* No overflow:hidden here (it clipped the ? tooltips); round the outer summaries by hand */
+.fold:first-child summary { border-radius: 13px 13px 0 0; }
+.fold:last-child:not([open]) summary { border-radius: 0 0 13px 13px; }
+.fold:last-child .body { border-radius: 0 0 13px 13px; }
+.fold + .fold { border-top: 1px solid var(--border-subtle); }
+.fold summary {
+  list-style: none; display: flex; align-items: center; gap: 12px; cursor: pointer;
+  padding: 14px 18px; font-weight: 600; font-size: 14px; user-select: none;
+}
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary:hover { background: var(--bg-hover); }
+.fold summary .chev { margin-left: auto; color: var(--text-muted); transition: transform .15s; }
+.fold[open] summary .chev { transform: rotate(90deg); }
+.fold summary .ico { width: 26px; height: 26px; border-radius: 8px; background: var(--bg-tertiary); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 12px; }
+.fold .body { padding: 4px 18px 18px 56px; color: var(--text-secondary); font-size: 13.5px; }
+.fold .body b { color: var(--text-primary); font-weight: 500; }
+.fold .body p { margin: 2px 0 8px; }
+
+.rule { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
+.rule:first-of-type { border-top: 0; padding-top: 4px; }
+.rule .who { flex: 0 0 110px; font-weight: 600; color: var(--text-primary); }
+.rule .who.you { color: var(--accent); }
+.rule .what { flex: 1; }
+.rule .what code { display: block; margin-top: 3px; font-size: 11.5px; color: var(--text-muted); }
+.rule .what .lock { color: var(--warning); }
+
+.party { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.party:first-of-type { border-top: 0; padding-top: 2px; }
+.party .av { width: 28px; height: 28px; border-radius: 9px; background: var(--bg-tertiary); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--text-primary); text-transform: uppercase; }
+.party.you .av { background: var(--accent-bg); border-color: var(--accent-dim); color: var(--accent); }
+.party .name { font-weight: 600; color: var(--text-primary); min-width: 96px; }
+.party .name span { color: var(--text-muted); font-weight: 400; }
+.party .addr { font-size: 12px; color: var(--text-muted); }
+.party .tag { margin-left: auto; font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; color: var(--text-secondary); white-space: nowrap; }
+.party .tag.here { border-color: var(--success); color: var(--success); }
+
+.kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 12.5px; margin-bottom: 12px; }
+.kv .k { color: var(--text-muted); }
+.kv .v { word-break: break-all; }
+.kv .v.mono { font-size: 11.5px; }
+.kv .v a { color: var(--accent); }
+.cv-page pre.src {
+  background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.55;
+  overflow-x: auto; color: var(--text-primary); white-space: pre; margin: 0;
+}
+.copyable { cursor: pointer; }
+.copyable:hover { color: var(--accent); }
+
+/* "?" bubbles: one sentence, no jargon */
+.q {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+  width: 17px; height: 17px; border-radius: 50%; font-size: 11px; font-weight: 700; line-height: 1;
+  background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary);
+  margin-left: 4px; position: relative; cursor: help;
+}
+.q:hover, .q:focus-visible { background: var(--accent); border-color: var(--accent); color: #14120a; outline: none; }
+.q .tip {
+  display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+  width: 240px; padding: 10px 12px; border-radius: 10px; font-weight: 400; font-size: 12px; line-height: 1.45; text-align: left;
+  background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); box-shadow: var(--shadow); z-index: 50;
+}
+.q:hover .tip, .q:focus-visible .tip { display: block; }
+
+.cv-foot { max-width: 680px; margin: 0 auto; padding: 0 16px 40px; font-size: 11.5px; color: var(--text-muted); text-align: center; }
+
+@media (max-width: 560px) {
+  .state { padding: 22px 18px; }
+  .state h2 { font-size: 22px; }
+  .fold .body { padding-left: 18px; }
+  .cv-me .addr { display: none; }
+  .kv { grid-template-columns: 1fr; }
+  .rule { flex-direction: column; gap: 2px; }
+}

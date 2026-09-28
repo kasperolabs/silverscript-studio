@@ -1,0 +1,13 @@
+{
+  "name": "kaspa",
+  "version": "0.13.0-studio",
+  "description": "Kaspa WASM SDK build vendored for SilverScript Studio",
+  "main": "index.js",
+  "types": "kaspa.d.ts",
+  "files": ["index.js", "kaspa.js", "kaspa_bg.wasm", "kaspa.d.ts", "LICENSE", "LICENSE-sdk", "README.md"],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "isomorphic-ws": "5.0.0",
+    "ws": "8.14.2"
+  }
+}

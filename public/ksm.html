@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Covenant files (.ksm) - SilverScript Studio</title>
+  <meta name="description" content="The Kaspa Spend Map (.ksm): one file per covenant that lets you verify it and withdraw from it with any compatible tool, without the service that created it.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c8a44e' stroke-width='2'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>try { document.documentElement.setAttribute('data-theme', localStorage.getItem('ss_theme') || 'dark'); } catch (_) {}</script>
+  <style>
+    [data-theme="dark"] { --bg:#0f1117; --bg2:#161822; --bg3:#1c1f2e; --border:#2a2e3e; --text:#e2e4ea; --text2:#8b8fa4; --accent:#c8a44e; --accent-bg:rgba(200,164,78,0.08); }
+    [data-theme="light"] { --bg:#ffffff; --bg2:#f5f6f8; --bg3:#ecedf0; --border:#d4d6dd; --text:#1a1c24; --text2:#5c5f6e; --accent:#9a7c2e; --accent-bg:rgba(154,124,46,0.08); }
+    * { box-sizing:border-box; }
+    html { scroll-padding-top:64px; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    header { position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 24px; background:var(--bg2); border-bottom:1px solid var(--border); }
+    header a.brand { display:flex; align-items:center; gap:8px; color:var(--text); text-decoration:none; font-weight:600; }
+    header a.brand svg { color:var(--accent); }
+    header nav { display:flex; gap:16px; flex-wrap:wrap; font-size:14px; }
+    main { max-width:860px; margin:0 auto; padding:32px 24px 80px; }
+    .studio { background:var(--accent-bg); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:16px 20px; margin:0 0 36px; }
+    .studio p { margin:6px 0; }
+    .studio .links { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; font-weight:500; }
+    a { color:var(--accent); }
+    h1 { font-size:32px; line-height:1.25; margin:0 0 16px; }
+    h2 { font-size:23px; margin:48px 0 12px; padding-top:12px; border-top:1px solid var(--border); }
+    h3 { font-size:18px; margin:28px 0 8px; }
+    hr { border:0; border-top:1px solid var(--border); margin:32px 0; }
+    code { font-family:'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size:0.86em; background:var(--bg3); padding:1px 5px; border-radius:4px; word-break:break-word; }
+    pre { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:14px 16px; overflow-x:auto; max-width:100%; }
+    pre code { background:none; padding:0; font-size:13px; line-height:1.55; word-break:normal; }
+    .tbl { overflow-x:auto; margin:14px 0; }
+    table { border-collapse:collapse; width:100%; font-size:14.5px; }
+    th, td { border:1px solid var(--border); padding:7px 10px; text-align:left; vertical-align:top; }
+    th { background:var(--bg2); }
+    li { margin:4px 0; }
+    .muted { color:var(--text2); font-size:14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      SilverScript Studio
+    </a>
+    <nav>
+      <a href="/KSM.md" download>KSM.md</a>
+      <a href="https://www.npmjs.com/package/kaspa-ksm" target="_blank" rel="noopener">npm: kaspa-ksm ↗</a>
+    </nav>
+  </header>
+  <main>
+    <div class="studio">
+      <p><b>Every covenant you make in the Studio has a covenant file.</b> Download it from the deploy result, from My Contracts (the <b>.ksm</b> button), or from the covenant page under "Show me the code".</p>
+      <p>Keep it with your records. With the file and your key, you can check the covenant and withdraw from it using any tool that reads this format, even if the Studio is offline or gone.</p>
+      <div class="links">
+        <a href="/KSM.md" download>Download this document (KSM.md)</a>
+        <a href="https://www.npmjs.com/package/kaspa-ksm" target="_blank" rel="noopener">Reference library on npm ↗</a>
+      </div>
+    </div>
+<h1 id="kaspa-spend-map-ksm-version-1">Kaspa Spend Map (.ksm), version 1</h1>
+<p>A <code>.ksm</code> file is a small JSON document that holds everything needed to verify and spend one Kaspa P2SH covenant, with no dependency on the website, wallet or company that created it. If you hold the file and the right keys, you can get your money out with any software that follows this document.</p>
+<p>This specification is independent of any product. SilverScript Studio produces <code>.ksm</code> files, and the reference library <code>kaspa-ksm</code> reads them, but neither is required.</p>
+<hr />
+<h2 id="1-why-this-file-has-to-exist">1. Why this file has to exist</h2>
+<p>A covenant on Kaspa is a P2SH output. The chain stores only this:</p>
+<pre><code>OP_BLAKE2B &lt;32-byte hash of the redeem script&gt; OP_EQUAL      (hex: aa20&lt;hash&gt;87)
+</code></pre>
+<p>The redeem script itself, which holds the rules, the keys and the time locks, is <strong>not on chain</strong> until the first time someone spends from the address. To spend, you must present the exact script bytes whose hash matches. If nobody has those bytes, the coins at that address cannot be moved by anyone, ever.</p>
+<p>On top of the script, a spender needs to know things the script does not say in plain terms: which spend paths exist, how to select one, what arguments each path takes and in what order, which transaction fields the locks require. Services usually keep this in a private database. A <code>.ksm</code> file is that knowledge, written down in a form any program can read.</p>
+<p>Three consequences to keep in mind:</p>
+<ol>
+<li><strong>Keep the file.</strong> Losing a <code>.ksm</code> does not give anyone your money, but it can make your own money unreachable if you cannot rebuild the script another way.</li>
+<li><strong>Get it before you fund.</strong> A creator should hand out the file at the moment the covenant is created, not later.</li>
+<li><strong>The file is checkable.</strong> Anyone can hash <code>script.hex</code> and compare it with the address. A file that passes this check describes the real covenant; a file that fails it must not be used.</li>
+</ol>
+<hr />
+<h2 id="2-what-the-file-is-and-is-not">2. What the file is, and is not</h2>
+<p>It <strong>is</strong> a public description of spending rules. It contains public keys, never private keys.</p>
+<p>It <strong>is not</strong> a secret in the way a seed phrase is. Holding a <code>.ksm</code> does not let you spend a path that requires a signature you cannot produce.</p>
+<p>It <strong>can</strong> be sensitive in two ways:</p>
+<ul>
+<li><strong>Privacy.</strong> It reveals every party's public key (and so their addresses), the amounts they agreed to, and the contract name. Share it with the parties, not the world.</li>
+<li><strong>Paths with no signature.</strong> If a spend path requires no signature and does not pin where the money goes, then whoever knows the script can spend it. For such a covenant the file is effectively a bearer instrument. Tools should warn about this, and <code>ksm inspect</code> does.</li>
+</ul>
+<hr />
+<h2 id="3-a-file-at-a-glance">3. A file at a glance</h2>
+<p>Abridged; <code>examples/vault.ksm</code> is the full version.</p>
+<pre><code class="language-json">{
+  &quot;ksm&quot;: 1,
+  &quot;network&quot;: &quot;mainnet&quot;,
+  &quot;address&quot;: &quot;kaspa:pp0jset6lljc6q0tl5hrqtgnenlnd7vsxvvjuvcwn6z62yx30z8gum6k0vh9s&quot;,
+  &quot;name&quot;: &quot;Vault&quot;,
+  &quot;script&quot;: {
+    &quot;hex&quot;: &quot;7604bf4a16608763...6a6868&quot;,
+    &quot;hash&quot;: &quot;5f28657affe58d01ebfd2e302d13ccff36f99033192e330e9e85a510d1788e8e&quot;
+  },
+  &quot;entries&quot;: [
+    {
+      &quot;name&quot;: &quot;spend&quot;,
+      &quot;params&quot;: [{ &quot;name&quot;: &quot;ownerSig&quot;, &quot;type&quot;: &quot;sig&quot; }],
+      &quot;dispatch&quot;: { &quot;kind&quot;: &quot;tag&quot;, &quot;hex&quot;: &quot;bf4a1660&quot; },
+      &quot;locks&quot;: { &quot;cltv&quot;: [], &quot;csv&quot;: [] },
+      &quot;sigOps&quot;: 1,
+      &quot;payTo&quot;: null,
+      &quot;signers&quot;: [{ &quot;sig&quot;: &quot;ownerSig&quot;, &quot;key&quot;: &quot;owner&quot;, &quot;pubkey&quot;: &quot;4c10...c581&quot; }]
+    },
+    {
+      &quot;name&quot;: &quot;reclaim&quot;,
+      &quot;params&quot;: [{ &quot;name&quot;: &quot;funderSig&quot;, &quot;type&quot;: &quot;sig&quot; }],
+      &quot;dispatch&quot;: { &quot;kind&quot;: &quot;tag&quot;, &quot;hex&quot;: &quot;35eecca6&quot; },
+      &quot;locks&quot;: { &quot;cltv&quot;: [], &quot;csv&quot;: [&quot;864000&quot;] },
+      &quot;sigOps&quot;: 1,
+      &quot;payTo&quot;: null
+    }
+  ],
+  &quot;constructorArgs&quot;: [
+    { &quot;name&quot;: &quot;owner&quot;,  &quot;type&quot;: &quot;pubkey&quot;, &quot;value&quot;: &quot;4c10...c581&quot; },
+    { &quot;name&quot;: &quot;funder&quot;, &quot;type&quot;: &quot;pubkey&quot;, &quot;value&quot;: &quot;1dc3...74e9&quot; }
+  ],
+  &quot;parties&quot;: [
+    { &quot;role&quot;: &quot;owner&quot;,  &quot;pubkey&quot;: &quot;4c10...c581&quot;, &quot;address&quot;: &quot;kaspa:qpxpq2...wyasr&quot; },
+    { &quot;role&quot;: &quot;funder&quot;, &quot;pubkey&quot;: &quot;1dc3...74e9&quot;, &quot;address&quot;: &quot;kaspa:qqwu82...50sl0&quot; }
+  ],
+  &quot;source&quot;: { &quot;language&quot;: &quot;silverscript&quot;, &quot;contract&quot;: &quot;Vault&quot;, &quot;text&quot;: &quot;contract Vault(...) { ... }&quot; },
+  &quot;compiler&quot;: { &quot;name&quot;: &quot;silverc&quot;, &quot;version&quot;: &quot;1.0.0&quot;, &quot;ref&quot;: &quot;3ed9733&quot; }
+}
+</code></pre>
+<p>Read in plain words: this covenant lives at that address; the owner can take the money at any time; the funder can take it back once the deposit is 864,000 DAA old (about one day on mainnet).</p>
+<hr />
+<h2 id="4-field-reference">4. Field reference</h2>
+<p>Every field is either <strong>required</strong>, <strong>derived</strong> (a copy of something computable from <code>script.hex</code>, kept for convenience) or <strong>informative</strong> (useful context that no spend depends on).</p>
+<p>The authority rule: <strong><code>script.hex</code> wins.</strong> If a derived field disagrees with the script, the file is wrong about that field, and tools must use the value they compute from the script.</p>
+<h3 id="top-level">Top level</h3>
+<div class="tbl"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ksm</code></td>
+<td>required</td>
+<td>Format version. This document defines <code>1</code>.</td>
+</tr>
+<tr>
+<td><code>network</code></td>
+<td>required</td>
+<td><code>mainnet</code>, <code>testnet-10</code>, <code>testnet-11</code>, <code>testnet-12</code>, <code>simnet</code> or <code>devnet</code>. Decides the address prefix (<code>kaspa</code>, <code>kaspatest</code>, <code>kaspasim</code>, <code>kaspadev</code>).</td>
+</tr>
+<tr>
+<td><code>address</code></td>
+<td>required, checked</td>
+<td>The P2SH address. Must equal the address computed from <code>script.hex</code> and <code>network</code>.</td>
+</tr>
+<tr>
+<td><code>script.hex</code></td>
+<td>required</td>
+<td>The redeem script, lowercase hex, no <code>0x</code>. The one field everything else hangs on.</td>
+</tr>
+<tr>
+<td><code>script.hash</code></td>
+<td>derived</td>
+<td>BLAKE2b-256 of the script bytes.</td>
+</tr>
+<tr>
+<td><code>entries</code></td>
+<td>required</td>
+<td>The spend paths, in the order the contract declares them. See below.</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>informative</td>
+<td>Human name of the covenant.</td>
+</tr>
+<tr>
+<td><code>constructorArgs</code></td>
+<td>informative</td>
+<td>The values the contract was built with. Needed to reproduce the script from source.</td>
+</tr>
+<tr>
+<td><code>parties</code></td>
+<td>informative</td>
+<td>People involved, by role.</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>informative</td>
+<td>The contract source code. Strongly recommended: it lets anyone read the rules and recompile.</td>
+</tr>
+<tr>
+<td><code>compiler</code></td>
+<td>informative</td>
+<td>What produced the script (name, version, commit ref). Needed to reproduce it.</td>
+</tr>
+<tr>
+<td><code>funding</code></td>
+<td>informative</td>
+<td>Expected deposit and known deposits. Never a balance: the chain is the only balance.</td>
+</tr>
+<tr>
+<td><code>created</code></td>
+<td>informative</td>
+<td>When, by what tool, and an optional link back to it.</td>
+</tr>
+<tr>
+<td><code>extensions</code></td>
+<td>informative</td>
+<td>Tool-specific data, namespaced (see section 12).</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="entries"><code>entries[]</code></h3>
+<div class="tbl"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>required</td>
+<td>Path name, unique within the file.</td>
+</tr>
+<tr>
+<td><code>params</code></td>
+<td>required</td>
+<td>Arguments the spender supplies, in declaration order: <code>[{ name, type }]</code>.</td>
+</tr>
+<tr>
+<td><code>dispatch</code></td>
+<td>required</td>
+<td>How the spender selects this path. One of <code>{ "kind": "tag", "hex": "&lt;4 bytes&gt;" }</code>, <code>{ "kind": "selector", "n": 0..16 }</code>, <code>{ "kind": "none" }</code>.</td>
+</tr>
+<tr>
+<td><code>locks</code></td>
+<td>derived</td>
+<td>Time locks on this path: <code>{ "cltv": [...], "csv": [...] }</code>, decimal strings.</td>
+</tr>
+<tr>
+<td><code>sigOps</code></td>
+<td>derived</td>
+<td>Signature-check opcodes on this path (at least 1).</td>
+</tr>
+<tr>
+<td><code>payTo</code></td>
+<td>derived</td>
+<td>If the path forces where the money goes: <code>{ "kind": "p2pk", "pubkey": "&lt;hex&gt;" }</code>, else <code>null</code>.</td>
+</tr>
+<tr>
+<td><code>signers</code></td>
+<td>informative</td>
+<td>Which key each <code>sig</code> param is checked against: <code>[{ sig, key, pubkey?, open? }]</code>. <code>pubkey</code> is filled when <code>key</code> is a constructor argument; <code>open: true</code> means the key is an entry argument, so whoever spends supplies their own key.</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="dispatch-kinds">Dispatch kinds</h3>
+<ul>
+<li><strong><code>tag</code></strong>: SilverScript compiled with <code>silverc</code> 1.0 or later. Every entry has a 4-byte tag, and the script branches on <code>OP_DUP &lt;tag&gt; OP_EQUAL OP_IF</code>. The tag is derived from the entry's signature (name and parameter types), so it does not change when you rename the contract.</li>
+<li><strong><code>selector</code></strong>: older multi-entry scripts. The script branches on <code>OP_DUP &lt;n&gt; OP_NUMEQUAL OP_IF</code>, where <code>n</code> is the entry's position.</li>
+<li><strong><code>none</code></strong>: a single-entry script with no branching.</li>
+</ul>
+<p>A file must not mix <code>tag</code> with the other kinds, and a file with more than one entry must not use <code>none</code>.</p>
+<h3 id="types">Types</h3>
+<div class="tbl"><table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Canonical value in the file</th>
+<th>Pushed on the stack as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>int</code></td>
+<td>decimal string, e.g. <code>"86400"</code></td>
+<td>minimal script number</td>
+</tr>
+<tr>
+<td><code>temporal</code></td>
+<td>decimal string of Unix milliseconds</td>
+<td>minimal script number</td>
+</tr>
+<tr>
+<td><code>bool</code></td>
+<td>JSON <code>true</code> / <code>false</code></td>
+<td>script number 1 or 0</td>
+</tr>
+<tr>
+<td><code>byte</code></td>
+<td>JSON number 0..255</td>
+<td>one byte</td>
+</tr>
+<tr>
+<td><code>pubkey</code></td>
+<td>64 hex chars (32-byte x-only Schnorr key)</td>
+<td>32 bytes</td>
+</tr>
+<tr>
+<td><code>sig</code></td>
+<td>130 hex chars (64-byte signature + 1 sighash byte)</td>
+<td>65 bytes</td>
+</tr>
+<tr>
+<td><code>datasig</code></td>
+<td>128 hex chars</td>
+<td>64 bytes</td>
+</tr>
+<tr>
+<td><code>string</code></td>
+<td>UTF-8 text</td>
+<td>UTF-8 bytes</td>
+</tr>
+<tr>
+<td><code>byte[]</code></td>
+<td>hex</td>
+<td>bytes</td>
+</tr>
+<tr>
+<td><code>byte[N]</code></td>
+<td>hex of exactly N bytes</td>
+<td>N bytes</td>
+</tr>
+</tbody>
+</table></div>
+<p>Rules for all values: hex is lowercase with no <code>0x</code>; integers are strings so that 64-bit values survive JavaScript; amounts are in sompi (1 KAS = 100,000,000 sompi), also as decimal strings.</p>
+<p>Other types (structs, arrays of non-bytes) have no push encoding in version 1. A verifier warns about them; a spender cannot use a path that takes them.</p>
+<hr />
+<h2 id="5-encodings-a-spender-must-get-exactly-right">5. Encodings a spender must get exactly right</h2>
+<p><strong>Data push.</strong> Always the shortest form:</p>
+<div class="tbl"><table>
+<thead>
+<tr>
+<th>Bytes</th>
+<th>Encoding</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>empty</td>
+<td><code>00</code> (OP_0)</td>
+</tr>
+<tr>
+<td>one byte 1..16</td>
+<td><code>51</code>..<code>60</code> (OP_1..OP_16)</td>
+</tr>
+<tr>
+<td>one byte <code>0x81</code></td>
+<td><code>4f</code> (OP_1NEGATE)</td>
+</tr>
+<tr>
+<td>1..75 bytes</td>
+<td>length byte, then the bytes</td>
+</tr>
+<tr>
+<td>76..255 bytes</td>
+<td><code>4c</code>, length byte, bytes</td>
+</tr>
+<tr>
+<td>256..65535 bytes</td>
+<td><code>4d</code>, length as 2 bytes little-endian, bytes</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Script number.</strong> Little-endian magnitude; the top bit of the last byte is the sign. Zero is the empty string. If the magnitude's top byte already has its high bit set, append <code>00</code> (positive) or <code>80</code> (negative). Examples: 5 → <code>05</code>, 128 → <code>8000</code>, 86400 → <code>805101</code>, -1 → <code>81</code>.</p>
+<p><strong>Addresses.</strong> Kaspa uses CashAddr-style bech32: <code>prefix:</code> + base32(version byte + payload) + an 8-character checksum. The checksum uses the 40-bit BCH generator of CashAddr, with the prefix expanded as each character's low 5 bits followed by a zero. Version <code>8</code> is P2SH (payload: BLAKE2b-256 of the redeem script). Version <code>0</code> is a Schnorr public key (payload: 32-byte x-only key). Bitcoin's bech32 expansion gives wrong checksums; do not use it.</p>
+<p><strong>Hash.</strong> BLAKE2b with a 32-byte output (not BLAKE2b-512 truncated; the output length is part of the parameter block).</p>
+<p><strong>Opcodes that differ from Bitcoin.</strong> On Kaspa, <code>0xb0</code> is <code>OP_CHECKLOCKTIMEVERIFY</code> and <code>0xb1</code> is <code>OP_CHECKSEQUENCEVERIFY</code>. Bitcoin tables put them one slot higher. A lock reader built on Bitcoin's table will read the wrong kind of lock.</p>
+<hr />
+<h2 id="6-verifying-a-file">6. Verifying a file</h2>
+<p>Do this every time you load a file you did not just create yourself.</p>
+<ol>
+<li>Parse the JSON. Reject unless <code>ksm</code> is <code>1</code>, <code>network</code> is known, <code>script.hex</code> is non-empty lowercase hex, and <code>entries</code> is a non-empty list where each entry has <code>name</code>, <code>params</code> and a <code>dispatch</code> of a known kind.</li>
+<li>Tokenize the script. A push that runs past the end is fatal.</li>
+<li>Compute <code>hash = BLAKE2b-256(script bytes)</code>. If <code>script.hash</code> is present and differs, reject.</li>
+<li>Compute the address from <code>network</code> and <code>hash</code> (version 8). If it differs from <code>address</code>, reject. If the address's prefix belongs to another network, say so.</li>
+<li>For each entry, find its branch in the script: a <code>tag</code> entry must have <code>OP_DUP &lt;tag&gt; OP_EQUAL OP_IF</code> somewhere, a <code>selector</code> entry must have <code>OP_DUP &lt;n&gt; OP_NUMEQUAL OP_IF</code>. A missing branch is fatal: the file describes a path the script does not have.</li>
+<li>For each party, the address (if given) must be the version-0 address of its <code>pubkey</code>.</li>
+<li>Recompute <code>locks</code>, <code>sigOps</code> and <code>payTo</code> for each entry (section 7). Differences are warnings; use your values.</li>
+<li>Optional but valuable: if <code>source</code>, <code>constructorArgs</code> and <code>compiler</code> are present, compile the source with that compiler and those arguments and compare the bytes with <code>script.hex</code>. A match proves the source text really is the rules you are looking at. (<code>ksm reproduce</code> does this with <code>silverc</code>.)</li>
+</ol>
+<p>If steps 1 to 6 pass, the file can be used to spend. If step 8 passes too, the human-readable source can be trusted as well.</p>
+<hr />
+<h2 id="7-reading-one-path-out-of-the-script">7. Reading one path out of the script</h2>
+<p>A spender needs three facts per path. Each is read from the path's own branch, so that a lock on one path is not applied to another.</p>
+<p><strong>Finding the branch.</strong> Locate the guard (section 6, step 5). The branch runs from just after <code>OP_IF</code> to the <code>OP_ELSE</code> at the same depth, counting nested <code>OP_IF</code>/<code>OP_NOTIF</code> against <code>OP_ENDIF</code>. If the branch closes with <code>OP_ENDIF</code> instead, keep reading to the end of the script (this errs toward seeing more locks, never fewer). With dispatch <code>none</code>, the branch is the whole script. If a guard cannot be found, use the whole script and treat the path as suspect.</p>
+<p><strong>Time locks.</strong> A lock opcode takes the number on top of the stack. Two layouts occur:</p>
+<pre><code>&lt;N&gt; OP_CHECKSEQUENCEVERIFY                                   older compilers
+&lt;N&gt; OP_DUP OP_0 &lt;2^32&gt; OP_WITHIN OP_VERIFY OP_CHECKSEQUENCEVERIFY   silverc 1.0 (range check first)
+</code></pre>
+<p>So the lock value is the last number pushed right before the lock opcode, or, if the ops in between are only <code>OP_DUP</code> then pushes, <code>OP_WITHIN</code> and <code>OP_VERIFY</code>, the number that was duplicated. <code>OP_CHECKLOCKTIMEVERIFY</code> (0xb0) values go in <code>locks.cltv</code>; <code>OP_CHECKSEQUENCEVERIFY</code> (0xb1) values go in <code>locks.csv</code>.</p>
+<p><strong>Signature ops.</strong> Count <code>OP_CHECKSIG</code>, <code>OP_CHECKSIGVERIFY</code>, <code>OP_CHECKMULTISIG</code> and <code>OP_CHECKMULTISIGVERIFY</code> (0xac..0xaf) in the branch, minimum 1.</p>
+<p><strong>Pinned payee.</strong> A path that requires the first output to pay a fixed key compiles, in SilverScript, to <code>&lt;000020&gt; &lt;32-byte key&gt; OP_CAT &lt;ac&gt; OP_CAT ...</code> (building the P2PK script <code>20&lt;key&gt;ac</code> with a version prefix). If found, the spend must pay that key's address. This detection is best effort: other ways of pinning an output are not recognised, and in that case the node, not your tool, will tell you the output is wrong.</p>
+<hr />
+<h2 id="8-spending-step-by-step">8. Spending, step by step</h2>
+<p>This is the full procedure, without any particular library. The reference library does steps 3 to 8 for you; see section 10.</p>
+<h3 id="step-1-find-the-coins">Step 1: find the coins</h3>
+<p>Ask a node or an indexer for the UTXOs at <code>address</code>. With a rusty-kaspa node that runs with <code>--utxoindex</code>, that is <code>getUtxosByAddresses</code>. Each UTXO has an outpoint (txid and index), an amount in sompi, and <code>blockDaaScore</code>, the DAA score of the block that created it. You need all three.</p>
+<p>Each UTXO is a separate input and gets its own signatures. Spending many small deposits costs a fee per input; very small ones may be worth less than their fee.</p>
+<h3 id="step-2-choose-a-path-and-check-it-can-go-now">Step 2: choose a path and check it can go now</h3>
+<p>Pick an entry. Read its locks (section 7) and compare with the chain:</p>
+<ul>
+<li><strong>CLTV value below 500,000,000,000</strong>: a DAA score. The current virtual DAA score must be at least that value.</li>
+<li><strong>CLTV value at or above 500,000,000,000</strong>: Unix milliseconds. The current time must be past it (the node judges this by chain time, not your clock, so allow some slack).</li>
+<li><strong>CSV value N</strong>: every UTXO you spend must be at least N DAA old: <code>blockDaaScore + N &lt;= current DAA score</code>.</li>
+</ul>
+<p>A path that mixes a DAA-score CLTV and a timestamp CLTV cannot be spent in one transaction.</p>
+<p>On mainnet, about 10 DAA pass per second, so one day is roughly 864,000 DAA.</p>
+<h3 id="step-3-build-the-unsigned-transaction">Step 3: build the unsigned transaction</h3>
+<p>Inputs: the covenant UTXOs. Outputs: where the money goes, minus the fee. If the path has a <code>payTo</code>, the first output must pay exactly that key's version-0 address. Otherwise it is your choice, and a path's own rules may add conditions a generic tool cannot see; the node will reject anything the rules forbid.</p>
+<h3 id="step-4-set-the-fields-the-locks-need-before-signing">Step 4: set the fields the locks need, before signing</h3>
+<p>These fields are covered by the signature hash, so they must be final before anyone signs:</p>
+<ul>
+<li><code>lockTime</code> of the transaction = the largest CLTV value of the path (or 0).</li>
+<li><code>sequence</code> of every covenant input = the largest CSV value of the path (or 0).</li>
+<li><code>sigOpCount</code> of every covenant input = the path's <code>sigOps</code>. Most SDKs write 1 by default; a path with two signature checks needs 2, or the node rejects the transaction for exceeding its script budget.</li>
+</ul>
+<h3 id="step-5-pay-a-fee-that-covers-the-real-size">Step 5: pay a fee that covers the real size</h3>
+<p>SDKs estimate mass with an empty signature script and one signature op. A covenant input carries the signatures, the arguments, the dispatch push and the whole redeem script, and each extra signature op adds mass too. Add that weight to the estimate and pay at least the node's minimum fee rate for the total. Underpaying gets the transaction rejected, not delayed.</p>
+<h3 id="step-6-sign">Step 6: sign</h3>
+<p>Each required key signs each covenant input with Schnorr, <code>SIGHASH_ALL</code> (sighash byte <code>01</code>). The signature placed in the script is 65 bytes: 64-byte signature followed by the sighash byte.</p>
+<p>Wallets do not know your covenant, so they cannot finish the input themselves. Ask them only to sign, then build the signature script yourself. Known working calls, as of this writing:</p>
+<ul>
+<li><strong>Kasware</strong>: <code>kasware.signPskt({ txJsonString, options: { signInputs: [{ index, sighashType: 1 }] } })</code>, one object argument, where <code>txJsonString</code> is the rusty-kaspa "safe JSON" of the unsigned transaction. The returned transaction has <code>signatureScript</code> = <code>41</code> + signature + <code>01</code> on each input you listed. Take the 65 bytes after <code>41</code>.</li>
+<li><strong>Kaspire</strong>: the same shape plus a <code>sender</code> field, through <code>kaspire.request({ method: 'signPskt', params: {...} })</code>.</li>
+<li>Wallets that only sign their own address type (they leave covenant inputs empty) cannot be used for this step.</li>
+</ul>
+<p>Check that the wallet is on the right network before signing; a signature made on another network is useless here.</p>
+<h3 id="step-7-assemble-each-inputs-signature-script">Step 7: assemble each input's signature script</h3>
+<p>Per input, concatenate:</p>
+<pre><code>&lt;arg 1&gt; &lt;arg 2&gt; ... &lt;arg n&gt;    the entry's params in declaration order;
+                               a sig param is the push of its 65-byte signature,
+                               any other param is the push of its value (section 4 table)
+&lt;dispatch&gt;                     tag:      push of the 4 tag bytes     (04 + tag)
+                               selector: push of the script number n (00 for 0, 51 for 1, ...)
+                               none:     nothing
+&lt;redeem script&gt;                push of script.hex
+</code></pre>
+<p>Example for the <code>spend</code> path above: <code>41&lt;64-byte sig&gt;01</code> <code>04bf4a1660</code> <code>4c6b&lt;107 script bytes&gt;</code>.</p>
+<h3 id="step-8-broadcast">Step 8: broadcast</h3>
+<p>Submit through any node (<code>submitTransaction</code>) or the wallet's push method. If the node rejects it, its message is the truth. Two messages worth knowing:</p>
+<ul>
+<li>"locktime requirement not satisfied ... N &gt; 0": a CSV lock was not met, and the <code>0</code> is the input's <code>sequence</code>, not the transaction's lock time. The sequence was not set before signing.</li>
+<li>"Number too big ... 65 bytes": the script tried to read your signature as the path selector, so the dispatch push is missing.</li>
+</ul>
+<hr />
+<h2 id="9-paths-that-need-several-signatures">9. Paths that need several signatures</h2>
+<p>When a path has two or more <code>sig</code> params, every signer must sign <strong>the same unsigned transaction</strong> (same inputs, outputs, lock fields and <code>sigOpCount</code>). A workable flow with no server:</p>
+<ol>
+<li>One party builds the unsigned transaction (steps 1 to 5) and shares the safe JSON with the others, together with the <code>.ksm</code>.</li>
+<li>Each party verifies the file, checks the outputs are what was agreed, signs every covenant input, and returns their signatures.</li>
+<li>Whoever has all signatures assembles each input's script with every signature in its declared position, then broadcasts.</li>
+</ol>
+<p>If anyone changes anything in the transaction after the first signature, every signature must be redone. If the coins at the address change (a new deposit, or someone spends first), the prepared transaction becomes invalid.</p>
+<p>A coordination service can make this pleasant, but it is never required.</p>
+<hr />
+<h2 id="10-the-reference-library-kaspa-ksm">10. The reference library: <code>kaspa-ksm</code></h2>
+<p>Plain JavaScript, no dependencies, Node 18+ and browsers. BLAKE2b, bech32, script reading and argument encoding are built in.</p>
+<pre><code>npm install kaspa-ksm
+</code></pre>
+<h3 id="check-a-file">Check a file</h3>
+<pre><code class="language-js">const ksm = require('kaspa-ksm');
+const r = ksm.verify(fs.readFileSync('vault.ksm', 'utf8'));
+if (!r.ok) throw new Error(r.errors.join('\n'));   // wrong file: do not spend
+r.warnings.forEach(w =&gt; console.warn(w));          // stale informative fields
+</code></pre>
+<h3 id="plan-a-spend">Plan a spend</h3>
+<pre><code class="language-js">const plan = ksm.planSpend(manifest, 'reclaim', {
+  args:  {},                                        // non-signature arguments, canonical values
+  chain: { daa: currentDaa, nowMs: Date.now() },
+  utxos: utxos.map(u =&gt; ({ blockDaaScore: u.blockDaaScore })),
+});
+plan.ready              // false with reasons in plan.blockers (e.g. &quot;coins still aging ...&quot;)
+plan.sequence           // put on every input
+plan.lockTime           // put on the transaction
+plan.sigOpCount         // put on every input
+plan.payTo              // { pubkey, address } if the path forces the payee
+plan.signaturesNeeded   // e.g. ['funderSig']
+</code></pre>
+<h3 id="fill-in-the-transaction-and-the-signatures">Fill in the transaction and the signatures</h3>
+<pre><code class="language-js">const unsigned = ksm.applyPlan(plan, txJsonString);           // sets sequence, lockTime, sigOpCount
+const signed   = await kasware.signPskt({ txJsonString: unsigned,
+                   options: { signInputs: inputs.map((_, index) =&gt; ({ index, sighashType: 1 })) } });
+const tx = JSON.parse(typeof signed === 'string' ? signed : JSON.stringify(signed));
+const final = ksm.finalize(plan, unsigned,
+  tx.inputs.map(i =&gt; ({ funderSig: i.signatureScript })));     // accepts 41&lt;sig&gt;01 as returned
+// submit `final` through a node
+</code></pre>
+<h3 id="with-the-kaspa-wasm-sdk">With the Kaspa WASM SDK</h3>
+<p><code>kaspa-ksm/sdk</code> wraps the whole build (sweep, fee sizing, lock fields) around the SDK you already use. You pass the SDK in; the core never imports it.</p>
+<pre><code class="language-js">const { buildSpendTx } = require('kaspa-ksm/sdk');
+const kaspa = require('kaspa');                      // or the wasm32 SDK from the rusty-kaspa release
+const { entries } = await rpc.getUtxosByAddresses({ addresses: [manifest.address] });
+const { virtualDaaScore } = await rpc.getBlockDagInfo();
+const built = await buildSpendTx({
+  kaspa, manifest, entry: 'spend', utxos: entries,
+  destination: 'kaspa:q...', daa: virtualDaaScore,
+});
+// built.txJsonString is ready for the wallet; built.plan feeds finalize()
+</code></pre>
+<p>This adapter mirrors a spend builder proven on mainnet, but SDK versions differ in small ways. Try a small amount first.</p>
+<h3 id="create-a-file">Create a file</h3>
+<p>From <code>silverc</code> output:</p>
+<pre><code class="language-js">const art = JSON.parse(execFileSync('silverc', ['vault.sil', '--constructor-args', 'args.json', '-c']));
+const ast = JSON.parse(execFileSync('silverc', ['vault.sil', '--ast-only', '-c']));
+const manifest = ksm.fromSilvercArtifact(art, {
+  network: 'mainnet', source: fs.readFileSync('vault.sil', 'utf8'),
+  ast, constructorValues: [ownerPubkey, funderPubkey],
+  compiler: { version: '1.0.0', ref: '3ed9733' },
+});
+</code></pre>
+<p>From any other compiler, or by hand:</p>
+<pre><code class="language-js">const manifest = ksm.create({
+  network: 'mainnet',
+  script: redeemScriptHex,
+  entries: [{ name: 'spend', params: [{ name: 'ownerSig', type: 'sig' }], dispatchTag: 'bf4a1660' }],
+  constructorArgs: [{ name: 'owner', type: 'pubkey', value: 'kaspa:q...' }],   // addresses are accepted for pubkeys
+  source: { text: sourceText, contract: 'Vault' },
+});
+</code></pre>
+<p><code>create</code> fills in the hash, address, per-path locks, <code>sigOps</code>, <code>payTo</code>, party addresses and, when source is given, <code>signers</code>. Entries without tags get selector dispatch automatically when there are several.</p>
+<h3 id="command-line">Command line</h3>
+<pre><code>npx kaspa-ksm verify    vault.ksm
+npx kaspa-ksm inspect   vault.ksm [--asm]
+npx kaspa-ksm plan      vault.ksm reclaim --daa 474200000 --utxo-daa 474100000
+npx kaspa-ksm reproduce vault.ksm --silverc /path/to/silverc
+</code></pre>
+<p><code>verify</code> exits 0 only for a usable file. <code>plan</code> exits 0 only when the path can be spent now. <code>reproduce</code> recompiles the source and compares the bytes.</p>
+<h3 id="other-languages">Other languages</h3>
+<p>Nothing here is JavaScript-specific. The JSON Schema in <code>ksm.schema.json</code> checks the shape; sections 5 to 8 are everything a reimplementation needs. BLAKE2b-256 is in most standard libraries (Python: <code>hashlib.blake2b(data, digest_size=32)</code>).</p>
+<hr />
+<h2 id="11-tracking-a-covenant-without-anyones-service">11. Tracking a covenant without anyone's service</h2>
+<p>The address is enough to watch the money: any Kaspa explorer or indexer shows its balance and history, and a node with <code>--utxoindex</code> can subscribe to UTXO changes for it. The <code>.ksm</code> adds meaning on top: what each deposit is for, when each path unlocks (from the locks and each UTXO's <code>blockDaaScore</code>), and who can act.</p>
+<p><code>funding</code> in the file is a record of intent and history, not a balance. Always read the balance from the chain.</p>
+<hr />
+<h2 id="12-versioning-and-extensions">12. Versioning and extensions</h2>
+<ul>
+<li><code>ksm</code> is an integer. Version 1 readers must refuse files with any other value rather than guess.</li>
+<li>New optional fields may appear in later minor revisions of version 1; readers must ignore fields they do not know.</li>
+<li>Tool-specific data goes under <code>extensions</code>, keyed by a name you control (a reverse domain works well): <code>"extensions": { "io.example.mytool": { ... } }</code>. Nothing under <code>extensions</code> may change how a spend is built.</li>
+<li>A change that alters how a spend is built or verified is version 2.</li>
+</ul>
+<hr />
+<h2 id="13-known-limits-of-version-1">13. Known limits of version 1</h2>
+<ul>
+<li><code>payTo</code> detection recognises one output-pinning pattern. Other covenant rules about outputs (amounts, change back to the covenant, several outputs) are not described in the file; the node enforces them at spend time.</li>
+<li>A path whose branch closes with <code>OP_ENDIF</code> may pick up locks from the shared tail of the script. This errs toward a longer wait, never a failed spend due to a missing lock field.</li>
+<li>Only the types in section 4 have defined encodings.</li>
+<li>The file does not describe state-carrying covenants (paths that must re-create themselves in an output). Tools can still spend them if they know how to build the outputs.</li>
+</ul>
+<hr />
+<h2 id="14-glossary">14. Glossary</h2>
+<ul>
+<li><strong>Covenant</strong>: coins locked by a script that says who can spend them, when, and sometimes where they may go.</li>
+<li><strong>P2SH</strong>: pay-to-script-hash. The chain stores only the script's hash; the script is revealed when spent.</li>
+<li><strong>Redeem script</strong>: the covenant's compiled rules, <code>script.hex</code>.</li>
+<li><strong>Entry / spend path</strong>: one way to unlock the coins.</li>
+<li><strong>Dispatch</strong>: the value a spender pushes to pick a path.</li>
+<li><strong>DAA score</strong>: Kaspa's block-height-like counter, about 10 per second on mainnet.</li>
+<li><strong>CLTV / CSV</strong>: absolute and relative time locks (<code>OP_CHECKLOCKTIMEVERIFY</code>, <code>OP_CHECKSEQUENCEVERIFY</code>).</li>
+<li><strong>Sompi</strong>: the smallest unit; 1 KAS = 100,000,000 sompi.</li>
+<li><strong>Safe JSON</strong>: rusty-kaspa's JSON form of a transaction, with 64-bit numbers as strings.</li>
+</ul>
+    <p class="muted">This format is open (MIT). SilverScript Studio produces it; nothing in it depends on the Studio.</p>
+  </main>
+</body>
+</html>

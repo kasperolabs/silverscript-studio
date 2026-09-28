@@ -1,0 +1,20 @@
+{
+  "name": "silverscript-studio",
+  "version": "1.0.0",
+  "description": "SilverScript Studio: a web IDE and deploy platform for Kaspa covenant contracts",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "blake2b": "^2.1.4",
+    "blakejs": "^1.2.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "kaspa": "file:vendor/kaspa",
+    "mysql2": "^3.18.2",
+    "websocket": "^1.0.35"
+  }
+}

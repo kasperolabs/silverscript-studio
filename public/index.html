@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SilverScript Studio - Write, Compile & Deploy Kaspa Covenants</title>
+
+  <!-- SEO -->
+  <meta name="description" content="A browser IDE for writing, compiling, and deploying Kaspa covenants: spending rules locked onto coins, written in SilverScript. Visual builders, AI generation, and deploy from your own wallet.">
+  <meta name="keywords" content="SilverScript, Kaspa, covenants, spending rules, spend paths, IDE, UTXO, deploy, compiler">
+  <meta name="author" content="Kaspero Labs">
+  <link rel="canonical" href="https://silverscriptstudio.com">
+
+  <!-- Open Graph (Facebook, LinkedIn, Discord, Telegram, etc.) -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://silverscriptstudio.com">
+  <meta property="og:title" content="SilverScript Studio - Kaspa Covenants">
+  <meta property="og:description" content="Rules for your money, enforced by the chain. Write who can spend, when, and where it can go. Deposit KAS. Only spends that follow the rules go through.">
+  <meta property="og:image" content="https://silverscriptstudio.com/og-card.png?v=2">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:site_name" content="SilverScript Studio">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SilverScript Studio - Kaspa Covenants">
+  <meta name="twitter:description" content="Rules for your money, enforced by the chain. Write who can spend, when, and where it can go. Deposit KAS. Only spends that follow the rules go through.">
+  <meta name="twitter:image" content="https://silverscriptstudio.com/og-card.png?v=2">
+
+  <!-- Favicon (swap these when you have a real favicon) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c8a44e' stroke-width='2'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css?v=mainnet36">
+  <link rel="stylesheet" href="/wizard.css">
+</head>
+<body>
+  <!-- --- Top Menu Bar --------------------------------------- -->
+  <header id="menuBar">
+    <div class="menu-left">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span>SilverScript Studio</span>
+      </div>
+      <div class="menu-items">
+        <div class="menu-dropdown">
+          <button class="menu-btn">File</button>
+          <div class="dropdown-content">
+            <button onclick="App.showStart()">Start</button>
+            <div class="separator"></div>
+            <button onclick="App.newFile()"><span class="shortcut-label">New File</span><kbd>Ctrl+N</kbd></button>
+            <button onclick="App.newFromSnippet()">New from Snippet...</button>
+            <button onclick="App.loadFile()"><span class="shortcut-label">Open .sil File</span><kbd>Ctrl+O</kbd></button>
+            <button onclick="App.openKsm()">Open Covenant File (.ksm)</button>
+            <div class="separator"></div>
+            <button onclick="App.downloadSil()">Download .sil</button>
+          </div>
+        </div>
+        <div class="menu-dropdown">
+          <button class="menu-btn">Edit</button>
+          <div class="dropdown-content">
+            <button onclick="App.editorAction('undo')">Undo<kbd>Ctrl+Z</kbd></button>
+            <button onclick="App.editorAction('redo')">Redo<kbd>Ctrl+Y</kbd></button>
+            <div class="separator"></div>
+            <button onclick="App.editorAction('find')">Find<kbd>Ctrl+F</kbd></button>
+            <button onclick="App.editorAction('replace')">Replace<kbd>Ctrl+H</kbd></button>
+            <div class="separator"></div>
+            <button onclick="App.editorAction('comment')">Toggle Comment<kbd>Ctrl+/</kbd></button>
+          </div>
+        </div>
+        <div class="menu-dropdown">
+          <button class="menu-btn">Compile</button>
+          <div class="dropdown-content">
+            <button onclick="App.compile()">Compile Current<kbd>Ctrl+B</kbd></button>
+            <button onclick="App.clearOutput()">Clear Output</button>
+          </div>
+        </div>
+        <div class="menu-dropdown contracts-menu" style="display:none">
+          <button class="menu-btn">Contracts</button>
+          <div class="dropdown-content">
+            <button onclick="App.showMyContracts()">My Contracts</button>
+            <button onclick="App.openWalletDrawer()">My Wallets</button>
+            <div class="separator"></div>
+            <button onclick="App.showDeploy()"><span class="shortcut-label">Deploy Contract...</span><kbd>Ctrl+D</kbd></button>
+          </div>
+        </div>
+        <div class="menu-dropdown">
+          <button class="menu-btn">Help</button>
+          <div class="dropdown-content">
+            <button onclick="App.showReference()">SilverScript Reference</button>
+            <button onclick="window.open('/ksm.html', '_blank')">Covenant Files (.ksm)</button>
+            <button onclick="App.showShortcuts()">Keyboard Shortcuts</button>
+            <button onclick="App.showAbout()">About</button>
+          </div>
+        </div>
+            <button class="menu-btn ai-menu-btn" onclick="App.showAiGenerate()" style="display:none" ...>
+          AI Generate
+        </button>
+      </div>
+    </div>
+    <div class="menu-right">
+      <div id="authArea"></div>
+      <button id="themeToggle" onclick="App.toggleTheme()" title="Toggle theme">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- --- Main Layout ---------------------------------------- -->
+  <div id="mainLayout">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-section" id="filesSection">
+        <div class="sidebar-header">
+          <span>FILES</span>
+          <button class="icon-btn" onclick="App.newFile()" title="New file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+        <div id="fileList" class="sidebar-list"></div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div class="sidebar-section" id="snippetsSection">
+        <div class="sidebar-header sidebar-toggle" onclick="App.toggleSection('snippets')">
+          <span>SNIPPETS</span>
+          <svg class="section-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div id="snippetList" class="sidebar-list sidebar-collapsible"></div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div class="sidebar-section" id="wizardSection">
+        <div class="sidebar-header sidebar-toggle" onclick="App.toggleSection('wizard')">
+          <span>WIZARDS</span>
+          <svg class="section-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div id="wizardContent" class="sidebar-list sidebar-collapsible">
+          <button class="wizard-btn" onclick="WizardEngine.open('p2pk')">
+            <span class="wizard-btn-dot" style="background:#4eca8b"></span>Pay to Public Key
+          </button>
+          <button class="wizard-btn" onclick="WizardEngine.open('p2pkh')">
+            <span class="wizard-btn-dot" style="background:#5b9ef5"></span>Pay to Key Hash
+          </button>
+          <button class="wizard-btn" onclick="WizardEngine.open('timelocked')">
+            <span class="wizard-btn-dot" style="background:#e8a54e"></span>Time-Locked Vault
+          </button>
+          <button class="wizard-btn" onclick="WizardEngine.open('escrow')">
+            <span class="wizard-btn-dot" style="background:#c87dd4"></span>Two-Party Escrow
+          </button>
+          <button class="wizard-btn" onclick="WizardEngine.open('mecenas')">
+            <span class="wizard-btn-dot" style="background:#4ecac2"></span>Recurring Payment
+          </button>
+                  <button class="wizard-btn" onclick="WizardEngine.open('payroll')">
+            <span class="wizard-btn-dot" style="background:#f59e42"></span>Payroll / Freelance
+          </button>
+          <button class="wizard-btn" onclick="WizardEngine.open('covenant')">
+            <span class="wizard-btn-dot" style="background:#e85454"></span>Simple Covenant
+          </button>
+		  <button class="wizard-btn" onclick="WizardEngine.open('htlc')">
+			  <span class="wizard-btn-dot" style="background:#6c5ce7"></span>Hash-Locked Swap
+			</button>
+			<button class="wizard-btn" onclick="WizardEngine.open('deadman')">
+			  <span class="wizard-btn-dot" style="background:#e17055"></span>Dead Man's Switch
+			</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Editor + Bottom Panel -->
+    <div id="editorArea">
+      <!-- Tab Bar -->
+      <div id="tabBar"></div>
+
+      <!-- Monaco Container -->
+      <div id="editorContainer"></div>
+
+      <!-- Start panel: first-run screen, covers the editor until dismissed (File > Start brings it back) -->
+      <div id="startPanel">
+        <div class="sp-inner">
+          <h1 class="sp-title">Write the rules. Deposit KAS. Only spends that follow the rules go through.</h1>
+          <p class="sp-lede">A covenant is a Kaspa address with rules attached. The Studio helps you write the rules, put them on mainnet, and withdraw when they allow.</p>
+
+          <div class="sp-note" id="spNote"></div>
+
+          <div class="sp-doors" id="spDoors">
+            <div class="sp-door" data-tip="Pick a shape (vault, escrow, payroll, swap), fill in keys and amounts, and the Studio writes the SilverScript. You see the code before anything is deployed.">
+              <div class="sp-art"><svg viewBox="0 0 240 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <g fill="none" stroke="var(--text-muted)" stroke-width="3" stroke-linecap="round" opacity=".6"><line x1="34" y1="44" x2="86" y2="44"/><line x1="34" y1="80" x2="86" y2="80"/><line x1="34" y1="116" x2="86" y2="116"/></g>
+                <g fill="var(--accent)"><circle cx="74" cy="44" r="8"/><circle cx="48" cy="80" r="8"/><circle cx="62" cy="116" r="8"/></g>
+                <g transform="translate(112,80)"><circle cx="0" cy="0" r="24" fill="var(--accent)"/><circle cx="0" cy="0" r="10" fill="var(--bg-secondary)"/><rect x="22" y="-6" width="96" height="12" rx="3" fill="var(--accent)"/><rect x="70" y="6" width="10" height="16" fill="var(--accent)"/><rect x="88" y="6" width="10" height="22" fill="var(--accent)"/><rect x="106" y="6" width="10" height="14" fill="var(--accent)"/><g fill="var(--sp-deep)"><rect x="70" y="6" width="10" height="4"/><rect x="88" y="6" width="10" height="4"/><rect x="106" y="6" width="10" height="4"/></g></g>
+              </svg></div>
+              <div class="sp-under">Answer a few questions. The Studio writes the covenant.</div>
+              <button class="sp-push" onclick="App.startBuild()">Wizard</button>
+            </div>
+            <div class="sp-door" data-tip="Say what you want in plain words. It answers in SilverScript and nothing else; you read the result in the editor before you deploy. Needs a connected wallet.">
+              <div class="sp-art"><svg viewBox="0 0 240 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <g fill="var(--text-muted)" opacity=".6"><rect x="28" y="44" width="72" height="6" rx="3"/><rect x="28" y="60" width="56" height="6" rx="3"/><rect x="28" y="76" width="64" height="6" rx="3"/></g>
+                <path d="M118 80 h26" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M138 72 l10 8 l-10 8" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                <path d="M160 40 h60 a10 10 0 0 1 10 10 v52 a10 10 0 0 1 -10 10 h-30 l-16 16 v-16 h-14 a10 10 0 0 1 -10 -10 v-52 a10 10 0 0 1 10 -10z" fill="var(--accent)"/>
+                <g transform="translate(176,76)" fill="var(--bg-secondary)"><circle cx="0" cy="0" r="9"/><circle cx="0" cy="0" r="3.5" fill="var(--accent)"/><rect x="8" y="-2.5" width="34" height="5" rx="1.5"/><rect x="28" y="2" width="4" height="8"/><rect x="36" y="2" width="4" height="6"/></g>
+              </svg></div>
+              <div class="sp-under">Describe it in plain words to an assistant that speaks only SilverScript.</div>
+              <button class="sp-push" onclick="App.startDescribe()">Describe to AI</button>
+            </div>
+            <div class="sp-door" data-tip="Open the editor with welcome.sil: a one-key covenant explained line by line. Ctrl+B compiles, Deploy puts it on mainnet.">
+              <div class="sp-art"><svg viewBox="0 0 240 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <g transform="translate(40,84)"><circle cx="0" cy="0" r="24" fill="var(--accent)"/><circle cx="0" cy="0" r="10" fill="var(--bg-secondary)"/><rect x="22" y="-6" width="118" height="12" rx="3" fill="var(--accent)"/><rect x="58" y="6" width="10" height="16" fill="var(--accent)"/><rect x="76" y="6" width="10" height="22" fill="var(--accent)"/><rect x="94" y="6" width="10" height="20" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/><rect x="112" y="6" width="10" height="14" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/></g>
+                <g transform="translate(176,30) rotate(28)"><rect x="0" y="0" width="14" height="78" rx="3" fill="var(--text-muted)"/><rect x="0" y="0" width="14" height="22" rx="3" fill="var(--text-secondary)"/><g stroke="var(--bg-primary)" stroke-width="1.2" opacity=".7"><line x1="2" y1="30" x2="12" y2="30"/><line x1="2" y1="38" x2="12" y2="38"/><line x1="2" y1="46" x2="12" y2="46"/><line x1="2" y1="54" x2="12" y2="54"/><line x1="2" y1="62" x2="12" y2="62"/></g></g>
+              </svg></div>
+              <div class="sp-under">The editor, with a one-key covenant explained line by line.</div>
+              <button class="sp-push" onclick="App.startWrite()">Write by Hand</button>
+            </div>
+          </div>
+
+          <div class="sp-pick" id="spPick">
+            <div class="sp-pick-head">
+              <span>What do you want to do? Each one asks a few questions, then writes the covenant.</span>
+              <button class="sp-back" onclick="App.startPickBack()">back</button>
+            </div>
+            <div class="sp-templates" id="spTemplates"></div>
+          </div>
+
+          <div class="sp-life">
+            <b>Write</b><span class="sp-arrow">&rarr;</span><b>Deploy</b> from 1 KAS<span class="sp-arrow">&rarr;</span><b>Deposit</b><span class="sp-arrow">&rarr;</span><b>Withdraw</b> when the rules allow.
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Panel Toggle -->
+      <div id="bottomPanelToggle" onclick="App.toggleBottomPanel()">
+        <span id="bottomPanelLabel">COMPILER OUTPUT</span>
+        <svg id="bottomPanelArrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+
+      <!-- Bottom Panel -->
+      <div id="bottomPanel">
+        <div class="panel-tabs">
+          <button class="panel-tab active" data-tab="compiler" onclick="App.switchPanelTab('compiler')">Compiler Output</button>
+          <button class="panel-tab" data-tab="hex" onclick="App.switchPanelTab('hex')">Hex Inspector</button>
+          <button class="panel-tab" data-tab="console" onclick="App.switchPanelTab('console')">Console</button>
+        </div>
+        <div class="panel-content" id="panelCompiler">
+          <div class="panel-placeholder">Compile a file to see output (Ctrl+B)</div>
+        </div>
+        <div class="panel-content" id="panelHex" style="display:none">
+          <div class="panel-placeholder">Compile a file to inspect hex output</div>
+        </div>
+        <div class="panel-content" id="panelConsole" style="display:none">
+          <div id="consoleLog" class="console-log"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- --- Modals --------------------------------------------- -->
+  <div id="modalOverlay" class="modal-overlay" onclick="App.closeModal()"></div>
+
+  <!-- Snippet Picker Modal -->
+  <div id="snippetModal" class="modal">
+    <div class="modal-header">
+      <h3>Insert Snippet</h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="snippetModalBody"></div>
+  </div>
+
+  <!-- Snippet Preview Modal -->
+  <div id="snippetPreviewModal" class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="snippetPreviewName">Snippet</h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="snippetPreviewDesc" class="snippet-preview-desc"></p>
+      <pre id="snippetPreviewCode" class="snippet-preview-code"></pre>
+    </div>
+    <div class="modal-footer" id="snippetPreviewActions"></div>
+  </div>
+
+  <!-- Reference / About Modal -->
+  <div id="infoModal" class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="infoTitle">Info</h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="infoBody"></div>
+  </div>
+
+<!-- AI Generate Modal -->
+  <div id="aiModal" class="modal ai-modal-v2">
+    <div class="ai-v2-header">
+      <h3>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -4px; margin-right: 8px;"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22"/><path d="M8 6a4 4 0 0 1 8 0"/><path d="M5 10a7 7 0 0 0 14 0"/><circle cx="12" cy="6" r="1"/></svg>
+        AI Contract Generator
+      </h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+
+    <!-- Code preview panel (top) - hidden until first generation -->
+    <div id="aiCodePanel" class="ai-v2-code-panel" style="display:none">
+      <div class="ai-v2-code-header">
+        <span>Generated SilverScript</span>
+        <button id="aiUseCodeBtn" class="ai-v2-use-btn" onclick="App.aiUseCode()">⚡ Open in Editor</button>
+      </div>
+      <pre id="aiPreviewCode" class="ai-v2-code"></pre>
+    </div>
+
+    <!-- Chat area (middle) - scrollable conversation -->
+    <div id="aiChatArea" class="ai-v2-chat-area">
+      <div id="aiWelcome" class="ai-v2-welcome">
+        <p class="ai-v2-welcome-text">Describe what your contract should do in plain English (or any other language). The AI will generate valid SilverScript code that you can edit, compile, and deploy.</p>
+        <button class="ai-v2-suggestions-toggle" onclick="App.aiToggleSuggestions(this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          Not sure where to start? See examples
+        </button>
+        <div id="aiSuggestions" class="ai-v2-suggestions">
+          <button class="ai-v2-suggestion" onclick="App.aiSuggest(this)">Create an escrow where Alice and Bob both sign to release, or Alice reclaims after 14 days</button>
+          <button class="ai-v2-suggestion" onclick="App.aiSuggest(this)">A time-locked vault that only the owner can open after a specific date</button>
+          <button class="ai-v2-suggestion" onclick="App.aiSuggest(this)">Recurring payment contract that pays a recipient monthly with a reclaim option</button>
+        </div>
+      </div>
+      <div id="aiMessages" class="ai-v2-messages"></div>
+    </div>
+
+    <!-- Input bar (bottom) - always visible -->
+    <div class="ai-v2-input-bar">
+      <div id="aiError" class="ai-error" style="display:none"></div>
+      <div class="ai-v2-input-row">
+        <textarea id="aiPromptInput" class="ai-v2-input" rows="1"
+          placeholder="Describe your contract, or ask for changes..."
+          oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight, 125)+'px';"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();App.aiGenerate();}"
+          maxlength="5000"></textarea>
+        <button id="aiSendBtn" class="ai-v2-send-btn" onclick="App.aiGenerate()">
+          <span id="aiSendBtnIcon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+          </span>
+          <span id="aiSendSpinner" class="ai-spinner" style="display:none"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Wizard V2 Overlay + Modal -->
+  <div id="wizardOverlay" onclick="WizardEngine.close()"></div>
+  <div id="wizardModalV2" onclick="event.stopPropagation()"></div>
+
+  <!-- Deploy Modal -->
+  <div id="deployModal" class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="deployTitle">Deploy Contract</h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="deployModalBody"></div>
+    <div class="modal-footer" id="deployModalFooter">
+      <button class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="deployBtn" onclick="App.deployContract()">Deploy to Testnet</button>
+    </div>
+  </div>
+
+  <!-- Kasla send confirmation (hosted wallet has no extension popup, so the Studio asks) -->
+  <div id="kaslaConfirmModal" class="modal" style="z-index:530;">
+    <div class="modal-header">
+      <h3>Confirm with Kasla</h3>
+      <button class="modal-close" onclick="App.kaslaConfirmAnswer(false)">&times;</button>
+    </div>
+    <div class="modal-body" id="kaslaConfirmBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="App.kaslaConfirmAnswer(false)">Cancel</button>
+      <button class="btn btn-primary" id="kaslaConfirmBtn" onclick="App.kaslaConfirmAnswer(true)">Send</button>
+    </div>
+  </div>
+
+  <!-- My Contracts Modal -->
+  <div id="contractsModal" class="modal modal-contracts">
+    <div class="modal-header">
+      <h3>My Contracts</h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="contractsModalBody">
+      <div class="panel-placeholder">Loading contracts...</div>
+    </div>
+  </div>
+
+  <!-- Redeem Modal -->
+  <div id="redeemModal" class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="redeemTitle">Redeem Contract</h3>
+      <button class="modal-close" onclick="App.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="redeemModalBody"></div>
+    <div class="modal-footer" id="redeemModalFooter"></div>
+  </div>
+
+  <!-- Wallet Address Book Drawer — add before the Context Menu div -->
+  <div id="walletDrawerBackdrop" class="wallet-drawer-backdrop" onclick="App.closeWalletDrawer()"></div>
+  <div id="walletDrawer" class="wallet-drawer">
+    <div class="wallet-drawer-header">
+      <h3>My Wallets</h3>
+      <button class="modal-close" onclick="App.closeWalletDrawer()">&times;</button>
+    </div>
+    <div class="wallet-drawer-body" id="walletDrawerBody">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="contextMenu" class="context-menu"></div>
+
+  <!-- Monaco Loader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+  <script src="https://kasperopay.com/connect/widget.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/blakejs@1.2.1"></script>
+  <script src="/wizard-data.js?v=mainnet33"></script>
+  <script src="/wizard-engine.js?v=mainnet31"></script>
+  <script src="/app.js?v=mainnet47"></script>
+</body>
+</html>

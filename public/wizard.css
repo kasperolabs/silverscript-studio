@@ -1,0 +1,1063 @@
+/* ═══════════════════════════════════════════════════════
+   SilverScript Studio — Wizard Styles
+   Multi-step guided contract builder
+   150% scaled for readability
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── Overlay ─────────────────────────────────────── */
+#wizardOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 900;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+#wizardOverlay.visible {
+  display: block;
+  opacity: 1;
+}
+
+/* ─── Modal Container ─────────────────────────────── */
+#wizardModalV2 {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.96);
+  width: 1440px;
+  max-width: 94vw;
+  height: 840px;
+  max-height: 92vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 21px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  z-index: 910;
+  flex-direction: row;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#wizardModalV2.visible {
+  display: flex;
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* ─── Sidebar ─────────────────────────────────────── */
+.wiz-sidebar {
+  width: 330px;
+  min-width: 330px;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.wiz-sidebar-header {
+  padding: 36px 30px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.wiz-icon {
+  margin-bottom: 12px;
+}
+.wiz-icon svg {
+  width: 48px;
+  height: 48px;
+}
+.wiz-sidebar-title {
+  font-size: 22.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.wiz-sidebar-sub {
+  font-size: 16.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 3px;
+}
+
+/* ─── Step Navigation ─────────────────────────────── */
+.wiz-steps-nav {
+  flex: 1;
+  padding: 18px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wiz-step-btn {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  width: 100%;
+  padding: 15px 18px;
+  background: none;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+.wiz-step-btn:hover {
+  background: var(--bg-hover);
+}
+.wiz-step-btn.current {
+  background: var(--accent-bg);
+}
+
+.wiz-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+.wiz-step-btn.active .wiz-step-num {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.wiz-step-btn.current .wiz-step-num {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.wiz-step-label {
+  font-size: 18.75px;
+  color: var(--text-muted);
+  transition: color 0.15s;
+  font-weight: 450;
+}
+.wiz-step-btn.active .wiz-step-label {
+  color: var(--text-secondary);
+}
+.wiz-step-btn.current .wiz-step-label {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ─── Progress Bar ────────────────────────────────── */
+.wiz-sidebar-footer {
+  padding: 21px 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+.wiz-progress-bar {
+  height: 4.5px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.wiz-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.wiz-progress-text {
+  font-size: 15.75px;
+  color: var(--text-muted);
+  margin-top: 9px;
+  text-align: center;
+}
+
+/* ─── Main Panel ──────────────────────────────────── */
+.wiz-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.wiz-main-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 27px 36px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.wiz-main-header h2 {
+  font-size: 25.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.wiz-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 33px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 6px;
+  border-radius: 9px;
+  transition: all 0.15s;
+}
+.wiz-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.wiz-main-body {
+  flex: 1;
+  padding: 36px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.wiz-main-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 21px 36px;
+  border-top: 1px solid var(--border-subtle);
+}
+.wiz-nav-left, .wiz-nav-right {
+  display: flex;
+  gap: 12px;
+}
+
+/* ─── Buttons ─────────────────────────────────────── */
+.wiz-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: inherit;
+  font-size: 19.5px;
+  font-weight: 500;
+  padding: 12px 27px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.wiz-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.wiz-btn-primary:hover {
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(200, 164, 78, 0.3);
+}
+.wiz-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.wiz-btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.wiz-btn-create {
+  padding: 13.5px 33px;
+  font-size: 20.25px;
+  font-weight: 600;
+}
+.wiz-btn-arrow {
+  font-size: 21px;
+  line-height: 1;
+}
+.wiz-btn-spark {
+  font-size: 21px;
+}
+
+/* ─── Slide Animations ────────────────────────────── */
+.wiz-slide-out-next {
+  animation: wizSlideOutLeft 0.15s ease forwards;
+}
+.wiz-slide-in-next {
+  animation: wizSlideInRight 0.2s ease forwards;
+}
+.wiz-slide-out-prev {
+  animation: wizSlideOutRight 0.15s ease forwards;
+}
+.wiz-slide-in-prev {
+  animation: wizSlideInLeft 0.2s ease forwards;
+}
+
+@keyframes wizSlideOutLeft {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-30px); }
+}
+@keyframes wizSlideInRight {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes wizSlideOutRight {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(30px); }
+}
+@keyframes wizSlideInLeft {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ═══════════════════════════════════════════════════════
+   STEP RENDERERS
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── Explain Step ────────────────────────────────── */
+.wiz-analogy {
+  display: flex;
+  gap: 24px;
+  padding: 27px;
+  background: var(--accent-bg);
+  border: 1px solid rgba(200, 164, 78, 0.15);
+  border-radius: 15px;
+  margin-bottom: 33px;
+}
+.wiz-analogy-icon {
+  font-size: 42px;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 3px;
+}
+.wiz-analogy-title {
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.wiz-analogy-text {
+  font-size: 19.5px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+.wiz-analogy-text em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.wiz-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 33px;
+}
+.wiz-bullet {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.wiz-bullet-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  line-height: 1.5;
+}
+.wiz-bullet-text {
+  font-size: 19.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.wiz-bullet-text strong {
+  color: var(--text-primary);
+}
+
+.wiz-who-uses {
+  padding: 21px 24px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+}
+.wiz-who-label {
+  font-size: 16.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.wiz-who-text {
+  font-size: 19.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ─── Diagram Step ────────────────────────────────── */
+.wiz-flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 36px;
+  padding: 24px 9px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  justify-content: center;
+}
+.wiz-flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 120px;
+  max-width: 210px;
+  flex-shrink: 1;
+}
+.wiz-flow-or {
+  min-width: auto;
+  max-width: auto;
+}
+.wiz-flow-icon {
+  font-size: 36px;
+  margin-bottom: 9px;
+  line-height: 1;
+  width: 66px;
+  height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: 15px;
+  border: 1px solid var(--border-subtle);
+}
+.wiz-flow-or .wiz-flow-icon {
+  background: none;
+  border: none;
+  font-size: 27px;
+  width: auto;
+  height: auto;
+}
+.wiz-flow-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+.wiz-flow-desc {
+  font-size: 15.75px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.wiz-flow-arrow {
+  font-size: 36px;
+  color: var(--text-secondary);
+  padding: 0 8px;
+  flex-shrink: 0;
+  margin-top: -30px;
+  opacity: 0.7;
+}
+
+.wiz-code-preview {
+  margin-bottom: 30px;
+}
+.wiz-code-label, .wiz-concepts-label {
+  font-size: 16.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.wiz-code {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 21px 24px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 18px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.wiz-concepts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wiz-concept {
+  display: flex;
+  gap: 15px;
+  align-items: baseline;
+  padding: 12px 18px;
+  background: var(--bg-tertiary);
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle);
+}
+.wiz-concept-term {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 17.25px;
+  color: var(--accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--accent-bg);
+  padding: 1.5px 9px;
+  border-radius: 4.5px;
+}
+.wiz-concept-def {
+  font-size: 18.75px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ─── Configure Step ──────────────────────────────── */
+.wiz-configure {
+  display: flex;
+  flex-direction: column;
+  gap: 27px;
+}
+
+.wiz-field {
+  transition: opacity 0.2s ease, max-height 0.2s ease;
+}
+.wiz-field-hidden {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.wiz-field-label {
+  display: block;
+  font-size: 19.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 9px;
+}
+
+.wiz-input {
+  width: 100%;
+  padding: 13.5px 18px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10.5px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 19.5px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.wiz-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4.5px rgba(200, 164, 78, 0.1);
+}
+.wiz-input::placeholder {
+  color: var(--text-muted);
+}
+
+.wiz-field-hint {
+  font-size: 17.25px;
+  color: var(--text-muted);
+  margin-top: 7.5px;
+  line-height: 1.5;
+}
+
+.wiz-field-error {
+  font-size: 17.25px;
+  color: var(--error);
+  margin-top: 6px;
+  min-height: 0;
+}
+
+/* Select Buttons (radio-style) */
+.wiz-select-group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wiz-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  width: 100%;
+  padding: 15px 21px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  font: inherit;
+  color: var(--text-secondary);
+}
+.wiz-select-btn:hover {
+  border-color: var(--accent-dim);
+  background: var(--accent-bg);
+}
+.wiz-select-btn.selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+.wiz-select-radio {
+  font-size: 15px;
+  color: var(--text-muted);
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.wiz-select-btn.selected .wiz-select-radio {
+  color: var(--accent);
+}
+.wiz-select-label {
+  font-size: 19.5px;
+  line-height: 1.4;
+}
+
+/* ─── Review Step ─────────────────────────────────── */
+.wiz-review-summary {
+  display: flex;
+  align-items: center;
+  gap: 21px;
+  padding: 21px 24px;
+  background: var(--bg-tertiary);
+  border-radius: 15px;
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 30px;
+}
+.wiz-review-icon svg {
+  width: 42px;
+  height: 42px;
+}
+.wiz-review-name {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.wiz-review-type {
+  font-size: 18px;
+  color: var(--text-muted);
+}
+
+.wiz-review-code-container {
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  overflow: hidden;
+  margin-bottom: 30px;
+}
+.wiz-review-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 21px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 17.25px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.wiz-review-filename {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16.5px;
+  color: var(--text-muted);
+}
+
+.wiz-review-code {
+  background: var(--bg-primary);
+  padding: 6px 0;
+  max-height: 360px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 18px;
+  line-height: 1.65;
+}
+.wiz-code-line {
+  display: flex;
+  align-items: center;
+  padding: 0 21px 0 0;
+  min-height: 33px;
+  transition: background 0.1s;
+}
+.wiz-code-line.has-annotation {
+  background: rgba(200, 164, 78, 0.04);
+}
+.wiz-code-line:hover {
+  background: var(--bg-hover);
+}
+.wiz-line-num {
+  display: inline-block;
+  min-width: 54px;
+  padding: 0 15px 0 21px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 16.5px;
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.wiz-line-code {
+  flex: 1;
+  white-space: pre;
+}
+.wiz-line-annotation {
+  flex-shrink: 0;
+  font-size: 18px;
+  cursor: help;
+  margin-left: 12px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.wiz-line-annotation:hover {
+  opacity: 1;
+}
+
+.wiz-annotation-row {
+  padding: 4.5px 21px 4.5px 90px;
+  font-size: 16.5px;
+  color: var(--accent-dim);
+  font-family: 'DM Sans', sans-serif;
+  background: rgba(200, 164, 78, 0.04);
+  border-left: 3px solid var(--accent);
+  margin-left: 0;
+  line-height: 1.5;
+}
+
+/* Syntax highlighting */
+.hl-keyword { color: #c586c0; }
+.hl-type { color: #4ec9b0; }
+.hl-builtin { color: #dcdcaa; }
+.hl-introspection { color: #9cdcfe; }
+.hl-string { color: #ce9178; }
+.hl-number { color: #b5cea8; }
+.hl-unit { color: #b5cea8; }
+.hl-comment { color: #6a9955; font-style: italic; }
+
+[data-theme="light"] .hl-keyword { color: #af00db; }
+[data-theme="light"] .hl-type { color: #267f99; }
+[data-theme="light"] .hl-builtin { color: #795e26; }
+[data-theme="light"] .hl-introspection { color: #001080; }
+[data-theme="light"] .hl-string { color: #a31515; }
+[data-theme="light"] .hl-number { color: #098658; }
+[data-theme="light"] .hl-unit { color: #098658; }
+[data-theme="light"] .hl-comment { color: #008000; }
+
+/* Config params summary on review */
+.wiz-review-params {
+  padding: 21px 24px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+}
+.wiz-review-params-title {
+  font-size: 16.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 15px;
+}
+.wiz-param-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 18.75px;
+}
+.wiz-param-row + .wiz-param-row {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 9px;
+  margin-top: 3px;
+}
+.wiz-param-key {
+  color: var(--text-muted);
+}
+.wiz-param-val {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+}
+
+/* ─── Responsive ──────────────────────────────────── */
+@media (max-width: 1050px) {
+  #wizardModalV2 {
+    width: 96vw;
+    height: 90vh;
+    flex-direction: column;
+  }
+  .wiz-sidebar {
+    width: 100%;
+    min-width: unset;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 15px;
+    overflow-x: auto;
+  }
+  .wiz-sidebar-header {
+    display: none;
+  }
+  .wiz-steps-nav {
+    flex-direction: row;
+    gap: 6px;
+    padding: 0;
+  }
+  .wiz-step-label {
+    display: none;
+  }
+  .wiz-sidebar-footer {
+    display: none;
+  }
+}
+
+/* ─── Arbiter Picker ──────────────────────────────── */
+.wiz-arbiter-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.wiz-arbiter-loading, .wiz-arbiter-empty {
+  font-size: 18px;
+  color: var(--text-muted);
+  padding: 24px 0;
+  text-align: center;
+}
+
+.wiz-arbiter-card {
+  background: var(--bg-tertiary);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 21px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.wiz-arbiter-card:hover {
+  border-color: var(--accent-dim);
+}
+.wiz-arbiter-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 3px 12px rgba(0,0,0,0.1);
+  background: var(--accent-bg);
+}
+
+.wiz-arb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.wiz-arb-name {
+  font-size: 20.25px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.wiz-arb-fee {
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-dim);
+  padding: 1.5px 10.5px;
+  border-radius: 15px;
+}
+
+.wiz-arb-desc {
+  font-size: 18px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 9px;
+}
+
+.wiz-arb-meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 15.75px;
+  color: var(--text-muted);
+}
+.wiz-arb-meta span {
+  white-space: nowrap;
+}
+
+.wiz-arbiter-manual {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 9px;
+}
+.wiz-arbiter-toggle-manual {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 17.25px;
+  cursor: pointer;
+  padding: 6px 0;
+  transition: color 0.15s;
+}
+.wiz-arbiter-toggle-manual:hover {
+  color: var(--accent);
+}
+.wiz-arbiter-manual-input {
+  margin-top: 9px;
+}
+.wiz-input-manual {
+  width: 100%;
+  padding: 13.5px 18px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10.5px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 19.5px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.wiz-input-manual:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4.5px rgba(200, 164, 78, 0.1);
+}
+.wiz-input-manual::placeholder {
+  color: var(--text-muted);
+}
+
+/* ─── Pubkey Hash Calculator ──────────────────────── */
+.wiz-pkh-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wiz-pkh-explain {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: var(--bg-secondary, #f8f7f4);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.wiz-pkh-explain-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.wiz-pkh-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.wiz-pkh-source {
+  flex: 1;
+  min-width: 0;
+}
+.wiz-pkh-calc-btn {
+  flex-shrink: 0;
+  padding: 12px 20px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.wiz-pkh-calc-btn:hover {
+  opacity: 0.88;
+}
+.wiz-pkh-calc-btn:active {
+  transform: scale(0.97);
+}
+
+.wiz-pkh-result {
+  padding: 16px;
+  background: var(--bg-secondary, #f8f7f4);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  animation: wiz-pkh-reveal 0.25s ease;
+}
+@keyframes wiz-pkh-reveal {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wiz-pkh-result-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.wiz-pkh-result-steps {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.wiz-pkh-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.wiz-pkh-step-num {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.wiz-pkh-result-hash {
+  display: block;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  word-break: break-all;
+  color: var(--text-primary);
+  user-select: all;
+  cursor: text;
+}
+
+.wiz-pkh-result-note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.wiz-pkh-result-note code {
+  background: var(--bg-primary);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* Mobile: stack button below input */
+@media (max-width: 580px) {
+  .wiz-pkh-input-row {
+    flex-direction: column;
+  }
+  .wiz-pkh-result-steps {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+

@@ -1,0 +1,105 @@
+{
+  "ksm": 1,
+  "network": "mainnet",
+  "address": "kaspa:pp0jset6lljc6q0tl5hrqtgnenlnd7vsxvvjuvcwn6z62yx30z8gum6k0vh9s",
+  "name": "Vault",
+  "script": {
+    "hex": "7604bf4a1660876375204c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581ac67760435eecca687637503002f0d7600050000000001a569b175201dc3ab07f4fde1760ae02ff0d459e3af0bf696eb20a6b978bc35fdef90ce74e9ac676a6868",
+    "hash": "5f28657affe58d01ebfd2e302d13ccff36f99033192e330e9e85a510d1788e8e"
+  },
+  "entries": [
+    {
+      "name": "spend",
+      "params": [
+        {
+          "name": "ownerSig",
+          "type": "sig"
+        }
+      ],
+      "dispatch": {
+        "kind": "tag",
+        "hex": "bf4a1660"
+      },
+      "locks": {
+        "cltv": [],
+        "csv": []
+      },
+      "sigOps": 1,
+      "payTo": null,
+      "signers": [
+        {
+          "sig": "ownerSig",
+          "key": "owner",
+          "pubkey": "4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581"
+        }
+      ]
+    },
+    {
+      "name": "reclaim",
+      "params": [
+        {
+          "name": "funderSig",
+          "type": "sig"
+        }
+      ],
+      "dispatch": {
+        "kind": "tag",
+        "hex": "35eecca6"
+      },
+      "locks": {
+        "cltv": [],
+        "csv": [
+          "864000"
+        ]
+      },
+      "sigOps": 1,
+      "payTo": null,
+      "signers": [
+        {
+          "sig": "funderSig",
+          "key": "funder",
+          "pubkey": "1dc3ab07f4fde1760ae02ff0d459e3af0bf696eb20a6b978bc35fdef90ce74e9"
+        }
+      ]
+    }
+  ],
+  "constructorArgs": [
+    {
+      "name": "owner",
+      "type": "pubkey",
+      "value": "4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581"
+    },
+    {
+      "name": "funder",
+      "type": "pubkey",
+      "value": "1dc3ab07f4fde1760ae02ff0d459e3af0bf696eb20a6b978bc35fdef90ce74e9"
+    }
+  ],
+  "parties": [
+    {
+      "role": "owner",
+      "pubkey": "4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581",
+      "address": "kaspa:qpxpq2tf0m34su2a8g229twczlztq9j3gsx7szphraupvkkfphzczu56wyasr"
+    },
+    {
+      "role": "funder",
+      "pubkey": "1dc3ab07f4fde1760ae02ff0d459e3af0bf696eb20a6b978bc35fdef90ce74e9",
+      "address": "kaspa:qqwu82c87n77zas2uqhlp4zeuwhsha5kavs2dwtchs6lmmusee6wj3jg50sl0"
+    }
+  ],
+  "source": {
+    "language": "silverscript",
+    "contract": "Vault",
+    "text": "contract Vault(pubkey owner, pubkey funder) {\n  entry spend(sig ownerSig) { require(checkSig(ownerSig, owner)); }\n  entry reclaim(sig funderSig) { require(this.ageDaa >= 864000); require(checkSig(funderSig, funder)); }\n}"
+  },
+  "compiler": {
+    "name": "silverc",
+    "version": "1.0.0",
+    "ref": "3ed9733"
+  },
+  "extensions": {
+    "org.example": {
+      "warning": "Hand-assembled test covenant with placeholder keys. Do not fund this address."
+    }
+  }
+}
