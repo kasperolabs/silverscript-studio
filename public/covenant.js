@@ -1,4 +1,4 @@
-// BUILD MARKER: sequencer-c2d-2026-09-28
+// BUILD MARKER: pw-args-2026-10-02
 // Money moves through covenant-actions.js (shared with the freelance deed); this file draws the cards.
 // Covenant page (/c/<token>): one question first ("is there something for me
 // to do?"), rendered as a state per viewer, with the evidence folded below
@@ -747,6 +747,54 @@
       startWithdraw(b.dataset.withdraw, amount);
     });
   }
+  // byte[N] args: Text (a password, sent as UTF-8) or Hex. byte[] defaults to Text.
+  function ensureEncStyle() {
+    if (document.getElementById('encToggleStyle')) return;
+    const st = document.createElement('style');
+    st.id = 'encToggleStyle';
+    st.textContent = `
+      .enc-toggle { display: inline-flex; gap: 2px; padding: 2px; margin: 0 0 6px; border-radius: 6px; border: 1px solid rgba(128,128,128,.3); }
+      .enc-opt { font: inherit; font-size: 11px; padding: 3px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; opacity: .75; cursor: pointer; }
+      .enc-opt.enc-on { background: #c8a44e; color: #1a1c24; font-weight: 600; opacity: 1; }`;
+    document.head.appendChild(st);
+  }
+  function argFieldHtml(i) {
+    const t = (i.type || '').toLowerCase();
+    const head = `<label class="deploy-label">${esc(i.name)} <span class="deploy-type">${esc(i.type)}</span></label>`;
+    if (!t.startsWith('byte[')) {
+      return `<div class="deploy-field">${head}
+          <input class="deploy-input" data-arg="${esc(i.name)}" placeholder="${esc(placeholderFor(i.type))}" spellcheck="false">
+        </div>`;
+    }
+    ensureEncStyle();
+    const enc = t === 'byte[]' ? 'text' : 'hex';
+    return `<div class="deploy-field">${head}
+        <div class="enc-toggle">
+          <button type="button" class="enc-opt${enc === 'text' ? ' enc-on' : ''}" data-enc-opt="text">Password / text</button>
+          <button type="button" class="enc-opt${enc === 'hex' ? ' enc-on' : ''}" data-enc-opt="hex">Hex</button>
+        </div>
+        <input class="deploy-input" data-arg="${esc(i.name)}" data-enc="${enc}" autocomplete="off" spellcheck="false"
+          placeholder="${enc === 'text' ? 'password or text, typed exactly' : 'hex bytes'}">
+      </div>`;
+  }
+  function wireEnc(box) {
+    box.querySelectorAll('[data-enc-opt]').forEach(btn => btn.onclick = () => {
+      const field = btn.closest('.deploy-field'), inp = field.querySelector('[data-arg]');
+      const enc = btn.dataset.encOpt;
+      inp.dataset.enc = enc;
+      inp.placeholder = enc === 'text' ? 'password or text, typed exactly' : 'hex bytes';
+      field.querySelectorAll('[data-enc-opt]').forEach(b => b.classList.toggle('enc-on', b === btn));
+      inp.focus();
+    });
+  }
+  // Text mode goes as "text:" (the server encodes UTF-8); trimmed, as the deploy-side hash is.
+  function collectArgs(box) {
+    const a = {};
+    box.querySelectorAll('[data-arg]').forEach(inp => {
+      a[inp.dataset.arg] = inp.dataset.enc === 'text' ? 'text:' + inp.value.trim() : inp.value.trim();
+    });
+    return a;
+  }
   function placeholderFor(t) {
     t = (t || '').toLowerCase();
     return t === 'pubkey' ? 'kaspa:q… or 64-hex pubkey' : t === 'int' ? 'integer' : t === 'temporal' ? 'ms timestamp or ISO date'
@@ -762,20 +810,15 @@
     box.innerHTML = `
       <div class="cv-flow">
         <p class="deploy-hint" style="margin:0 0 10px">This path asks for ${args.length === 1 ? 'one value' : args.length + ' values'} before it can be signed.</p>
-        ${args.map(i => `<div class="deploy-field">
-          <label class="deploy-label">${esc(i.name)} <span class="deploy-type">${esc(i.type)}</span></label>
-          <input class="deploy-input" data-arg="${esc(i.name)}" placeholder="${esc(placeholderFor(i.type))}" spellcheck="false">
-        </div>`).join('')}
+        ${args.map(argFieldHtml).join('')}
         <div class="cv-flow-actions">
           <button class="push quiet" data-cancel>Cancel</button>
           <button class="push" data-go>Continue</button>
         </div>
       </div>`;
     box.querySelector('[data-cancel]').onclick = restoreAct;
-    box.querySelector('[data-go]').onclick = () => {
-      const a = {}; box.querySelectorAll('[data-arg]').forEach(inp => a[inp.dataset.arg] = inp.value.trim());
-      buildSpend(name, a, amount);
-    };
+    wireEnc(box);
+    box.querySelector('[data-go]').onclick = () => buildSpend(name, collectArgs(box), amount);
   }
 
   // Receipt rows shared by the single-signer and the proposal previews
@@ -958,20 +1001,15 @@
     box.innerHTML = `
       <div class="cv-flow">
         <p class="deploy-hint" style="margin:0 0 10px">This path asks for ${args.length === 1 ? 'one value' : args.length + ' values'}. Every signer will see them before signing.</p>
-        ${args.map(i => `<div class="deploy-field">
-          <label class="deploy-label">${esc(i.name)} <span class="deploy-type">${esc(i.type)}</span></label>
-          <input class="deploy-input" data-arg="${esc(i.name)}" placeholder="${esc(placeholderFor(i.type))}" spellcheck="false">
-        </div>`).join('')}
+        ${args.map(argFieldHtml).join('')}
         <div class="cv-flow-actions">
           <button class="push quiet" data-cancel>Cancel</button>
           <button class="push" data-go>Continue</button>
         </div>
       </div>`;
     box.querySelector('[data-cancel]').onclick = restoreAct;
-    box.querySelector('[data-go]').onclick = () => {
-      const a = {}; box.querySelectorAll('[data-arg]').forEach(inp => a[inp.dataset.arg] = inp.value.trim());
-      createProposal(name, a, amount);
-    };
+    wireEnc(box);
+    box.querySelector('[data-go]').onclick = () => createProposal(name, collectArgs(box), amount);
   }
   async function createProposal(name, args, amount) {
     const box = actionBox();

@@ -68,7 +68,7 @@ Every variable the server reads is listed, with comments, in `.env.example`. The
 
 ### The Kaspa SDK
 
-`vendor/kaspa` holds the Kaspa WASM SDK build the Studio runs on mainnet. It is newer than the `kaspa` package on npm (0.13.0), so it is vendored and installed with `"kaspa": "file:vendor/kaspa"`.
+`vendor/kaspa-wasm32-sdk/nodejs/kaspa` is the Node.js build from the rusty-kaspa v2.1.0 release (the wasm32 SDK), the same one the Studio runs on mainnet. The server loads it by path, not through npm (the `kaspa` package on npm is 0.13.0 and too old). To use a different build, point `KASPA_SDK_PATH` at it.
 
 ---
 
@@ -118,7 +118,7 @@ public/                 the whole frontend, vanilla JS, no build step
   covenant.*            the per-covenant share page
   covenant-actions.js   deposit / sign / broadcast, no DOM
   ksm.html, KSM.md      the covenant file spec
-vendor/kaspa            Kaspa WASM SDK build (see above)
+vendor/kaspa-wasm32-sdk  Kaspa WASM SDK, rusty-kaspa v2.1.0 (see above)
 vendor/kaspa-ksm        Kaspa Spend Map reference library
 ```
 
@@ -134,7 +134,7 @@ Please report security issues privately to the maintainer rather than in a publi
 
 ## Credits
 
-SilverScript is developed by the Kaspa core contributors ([kaspanet/silverscript](https://github.com/kaspanet/silverscript)). . The Studio is an independent project by Kaspero Labs.
+SilverScript is by Michael Sutton and the Kaspa core developers ([kaspanet/silverscript](https://github.com/kaspanet/silverscript)). The Studio is built by Kaspero Labs.
 
 ## License
 

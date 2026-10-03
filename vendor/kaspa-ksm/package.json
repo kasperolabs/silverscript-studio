@@ -1,6 +1,6 @@
 {
   "name": "kaspa-ksm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Kaspa Spend Map (.ksm): a portable file for verifying and spending Kaspa P2SH covenants without the service that created them",
   "main": "src/index.js",
   "exports": {
@@ -8,11 +8,31 @@
     "./sdk": "./src/sdk.js",
     "./schema": "./ksm.schema.json"
   },
-  "bin": { "ksm": "bin/ksm.js" },
-  "files": ["src", "bin", "ksm.schema.json", "KSM.md", "README.md", "LICENSE", "examples"],
-  "scripts": { "test": "node test/test.js" },
-  "engines": { "node": ">=18" },
-  "keywords": ["kaspa", "covenant", "silverscript", "p2sh", "ksm"],
+  "bin": {
+    "ksm": "bin/ksm.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "ksm.schema.json",
+    "KSM.md",
+    "README.md",
+    "LICENSE",
+    "examples"
+  ],
+  "scripts": {
+    "test": "node test/test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "kaspa",
+    "covenant",
+    "silverscript",
+    "p2sh",
+    "ksm"
+  ],
   "license": "MIT",
   "author": "Kaspero Labs",
   "dependencies": {}

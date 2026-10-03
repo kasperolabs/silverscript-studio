@@ -1,4 +1,4 @@
-// BUILD MARKER: deploy-units-2026-09-28
+// BUILD MARKER: workspace-2026-10-02
 /* ═══════════════════════════════════════════════════════
    SilverScript Studio - app.js
    ═══════════════════════════════════════════════════════ */
@@ -96,44 +96,13 @@ const App = (() => {
     setupContextMenuListeners();
     document.addEventListener('click', handleDropdownOutsideClick);
 
-    // A contract handed over in the link (#code= / #open=) opens instead of the welcome file.
+    // Open files come back per wallet (see Workspace below). A first visit gets the
+    // welcome file, unless the link carries a contract (#code= / #open=), which
+    // then opens on top of whatever was restored.
+    loadWorkspace(!!readImportFromHash());
     const imported = importFromHash();
     window.addEventListener('hashchange', importFromHash);
 
-    // Start with a welcome file
-    if (!imported) addFile('welcome.sil', `// ═══════════════════════════════════════════════════
-// Welcome to SilverScript Studio
-// ═══════════════════════════════════════════════════
-//
-// A covenant is a Kaspa address with rules attached.
-// Anyone can send KAS to it. Taking KAS out only works
-// if the rules say so. This file is the simplest one:
-// one key, one way out.
-
-pragma silverscript ^0.1.0;
-
-// The name is yours. The parameter list is what you
-// fill in at deploy time; here it is one public key.
-contract HelloKaspa(pubkey owner) {
-
-    // Each "entry" is a spend path: one way to unlock
-    // the coins. The arguments are what the spender
-    // must provide, here a signature.
-    entry spend(sig ownerSig) {
-
-        // The rule. If it fails, the spend is rejected
-        // by the network, not by the Studio.
-        require(checkSig(ownerSig, owner));
-    }
-}
-
-// Things to try:
-//   Ctrl+B compiles this file.
-//   Add a second entry with a different key to give
-//   someone else a way out.
-//   Deploy from the toolbar to put it on mainnet
-//   (costs whatever you deposit, from 1 KAS).
-// ═══════════════════════════════════════════════════`);
     logToConsole('SilverScript Studio initialized');
     logToConsole('Mainnet — Covenants++ live (Toccata)');
 
@@ -227,6 +196,8 @@ contract HelloKaspa(pubkey owner) {
     }
     lastImportedHash = hash;
     const name = safeImportName(imp.name);
+    const already = files.find(f => f.filename === name && (f.model ? f.model.getValue() : f.content) === source);
+    if (already) { switchToFile(already.id); return true; }
     addFile(name, source, true, imp.args);
     showImportNotice(name, imp.from, referrerHost());
     logToConsole(`Opened ${name} from a link`);
@@ -524,6 +495,91 @@ contract HelloKaspa(pubkey owner) {
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'vs' : 'vs-dark';
   }
 
+  function welcomeSource() {
+    return `// ═══════════════════════════════════════════════════
+// Welcome to SilverScript Studio
+// ═══════════════════════════════════════════════════
+//
+// A covenant is a Kaspa address with rules attached.
+// Anyone can send KAS to it. Taking KAS out only works
+// if the rules say so. This file is the simplest one:
+// one key, one way out.
+
+pragma silverscript ^0.1.0;
+
+// The name is yours. The parameter list is what you
+// fill in at deploy time; here it is one public key.
+contract HelloKaspa(pubkey owner) {
+
+    // Each "entry" is a spend path: one way to unlock
+    // the coins. The arguments are what the spender
+    // must provide, here a signature.
+    entry spend(sig ownerSig) {
+
+        // The rule. If it fails, the spend is rejected
+        // by the network, not by the Studio.
+        require(checkSig(ownerSig, owner));
+    }
+}
+
+// Things to try:
+//   Ctrl+B compiles this file.
+//   Add a second entry with a different key to give
+//   someone else a way out.
+//   Deploy from the toolbar to put it on mainnet
+//   (costs whatever you deposit, from 1 KAS).
+// ═══════════════════════════════════════════════════`;
+  }
+
+  // ─── Workspace: open files persist per wallet ──────
+  // Saved in localStorage under the connected address (or "anon" before
+  // connecting): filenames, contents, wizard hints, which tab is active.
+  // Restored on load and on connect; each wallet sees its own set; closing
+  // a tab is remembered; a first visit gets welcome.sil. Per browser, not per account.
+  let restoringWorkspace = false, wsSaveTimer = null;
+  function workspaceKey(addr) { return 'ss_ws:' + (addr || (currentUser && currentUser.address) || 'anon'); }
+  function saveWorkspaceNow(key) {
+    if (restoringWorkspace) return;
+    clearTimeout(wsSaveTimer);
+    try {
+      const payload = {
+        files: files.map(f => ({ filename: f.filename, content: f.model ? f.model.getValue() : f.content, paramHints: f.paramHints || null })),
+        active: Math.max(0, files.findIndex(f => f.id === activeFileId)),
+        savedAt: Date.now()
+      };
+      localStorage.setItem(key || workspaceKey(), JSON.stringify(payload));
+    } catch (_) { /* quota or private mode: the session still works, it just doesn't persist */ }
+  }
+  function saveWorkspace() { clearTimeout(wsSaveTimer); wsSaveTimer = setTimeout(() => saveWorkspaceNow(), 300); }
+  function loadWorkspace(noWelcome) {
+    clearTimeout(wsSaveTimer);
+    restoringWorkspace = true;
+    try {
+      for (const f of files) { try { f.model.dispose(); } catch (_) {} }
+      files = []; activeFileId = null;
+      if (editor) editor.setModel(null);
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(workspaceKey()) || 'null'); } catch (_) { saved = null; }
+      if (!saved || !Array.isArray(saved.files)) {
+        if (!noWelcome) addFile('welcome.sil', welcomeSource());
+      } else {
+        for (const f of saved.files) addFile(f.filename || 'untitled.sil', f.content || '', false, f.paramHints || null);
+        const idx = Math.min(Math.max(0, Number(saved.active) || 0), files.length - 1);
+        if (files.length) switchToFile(files[idx].id);
+      }
+      renderFileList(); renderTabs();
+    } finally { restoringWorkspace = false; }
+  }
+  function closeAllFiles() {
+    if (!files.length) return;
+    for (const f of files) { try { f.model.dispose(); } catch (_) {} }
+    files = []; activeFileId = null;
+    if (editor) editor.setModel(null);
+    renderFileList(); renderTabs();
+    saveWorkspaceNow();
+    logToConsole('All tabs closed');
+  }
+
   // ─── File Management ───────────────────────────────
   function addFile(filename, content = '', switchTo = true, paramHints = null) {
     const id = fileIdCounter++;
@@ -536,6 +592,7 @@ contract HelloKaspa(pubkey owner) {
         f.compiled_output = null;
         renderFileList();
         renderTabs();
+        saveWorkspace();
       }
     });
 
@@ -544,6 +601,7 @@ contract HelloKaspa(pubkey owner) {
     if (switchTo) switchToFile(id);
     renderFileList();
     renderTabs();
+    saveWorkspace();
     return file;
   }
 
@@ -556,6 +614,7 @@ contract HelloKaspa(pubkey owner) {
     hideStart();   // anything that brings a file to the editor wins over the start panel
     renderFileList();
     renderTabs();
+    saveWorkspace();
   }
 
   function closeFile(id) {
@@ -576,6 +635,7 @@ contract HelloKaspa(pubkey owner) {
     }
     renderFileList();
     renderTabs();
+    saveWorkspace();
   }
 
   function renameFile(id) {
@@ -586,6 +646,7 @@ contract HelloKaspa(pubkey owner) {
       f.filename = name.trim().endsWith('.sil') ? name.trim() : name.trim() + '.sil';
       renderFileList();
       renderTabs();
+      saveWorkspace();
     }
   }
 
@@ -1758,6 +1819,29 @@ async function renameWallet(id, label) {
         }
         function selectParamTkas(paramName, tkas) { selectParamKas(paramName, String(tkas)); }
         // Days typed for a relative lock land as a DAA block count (mainnet ~10 blocks/s)
+        // ── Password ⇄ hex for byte[32] deploy params ─────────────────────────
+        function setHashMode(paramName, pw) {
+          const id = `deploy-param-${paramName}`;
+          const hex = document.getElementById(id), box = document.getElementById(id + '-pw');
+          if (!hex || !box) return;
+          const opts = hex.parentElement.querySelectorAll('.enc-toggle .enc-opt');
+          if (opts.length === 2) { opts[0].classList.toggle('enc-on', pw); opts[1].classList.toggle('enc-on', !pw); }
+          box.style.display = pw ? '' : 'none';
+          hex.readOnly = pw;
+          hex.placeholder = pw ? 'SHA-256 appears here' : '0x hex bytes (32 bytes)';
+          if (pw) { hex.value = ''; box.value = ''; box.focus(); } else { box.value = ''; hex.focus(); }
+        }
+        async function hashParamInput(paramName, text) {
+          const hex = document.getElementById(`deploy-param-${paramName}`);
+          if (!hex) return;
+          // Trimmed, the same as the spend side (the server trims every argument)
+          if (!text.trim()) { hex.value = ''; return; }
+          const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text.trim()));
+          const box = document.getElementById(`deploy-param-${paramName}-pw`);
+          if (box && box.value !== text) return;   // a later keystroke already took over
+          hex.value = '0x' + [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
         function selectParamDays(paramName, text) {
                 const hiddenInput = document.getElementById(`deploy-param-${paramName}`);
                 const d = Number(String(text).trim());
@@ -2275,6 +2359,27 @@ function renderDeployField(param, prefillValue) {
         <option value="false" ${pre === 'false' ? 'selected' : ''}>false</option>
       </select>`;
       break;
+    case 'byte[32]': {
+      // A 32-byte value is often the hash of a password/PIN. In Password mode the user
+      // types the password, the browser hashes it (SHA-256) into the field below, and
+      // only the hash leaves the browser. Hex mode takes the 32 bytes directly.
+      ensureEncStyle();
+      const pw = !pre && /hash|digest|commit/i.test(param.name);
+      const n = esc(param.name);
+      inputHtml = `
+        <div class="enc-toggle">
+          <button type="button" class="enc-opt${pw ? ' enc-on' : ''}" onclick="App.setHashMode('${n}', true)">Password</button>
+          <button type="button" class="enc-opt${pw ? '' : ' enc-on'}" onclick="App.setHashMode('${n}', false)">Hex</button>
+        </div>
+        <input type="text" id="${id}-pw" class="deploy-input deploy-input-wide" placeholder="the password or PIN"
+          autocomplete="off" spellcheck="false" style="${pw ? '' : 'display:none;'}"
+          oninput="App.hashParamInput('${n}', this.value)">
+        <input type="text" id="${id}" class="deploy-input deploy-input-wide enc-hash"
+          placeholder="${pw ? 'SHA-256 appears here' : '0x hex bytes (32 bytes)'}" value="${esc(pre)}" ${pw ? 'readonly' : ''}
+          data-param-name="${n}" data-param-type="${esc(param.type)}">`;
+      hint = 'Password: type it above; the Studio stores only its SHA-256, computed in your browser. Whoever spends types the same password, exactly (capitals count; spaces at the ends are ignored). Hex: 32 bytes as 64 hex characters.';
+      break;
+    }
     default:
       inputHtml = `<input type="text" id="${id}" class="deploy-input deploy-input-wide"
         placeholder="${param.type === 'string' ? 'text value' : '0x hex bytes'}"
@@ -2650,6 +2755,28 @@ function refreshDeployDropdowns() {
   // After deploy: one section that asks, once and plainly, to keep a copy. The button
   // glows once (a single burst), then sits still; styles injected here so style.css
   // doesn't change.
+  function ensureEncStyle() {
+    if (document.getElementById('encToggleStyle')) return;
+    const st = document.createElement('style');
+    st.id = 'encToggleStyle';
+    st.textContent = `
+      .enc-toggle { display: inline-flex; gap: 2px; padding: 2px; margin: 0 0 6px; border-radius: 6px; border: 1px solid var(--border, rgba(128,128,128,.3)); }
+      .enc-opt { font: inherit; font-size: 11px; padding: 3px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary, inherit); cursor: pointer; }
+      .enc-opt.enc-on { background: var(--accent, #c8a44e); color: #1a1c24; font-weight: 600; }
+      .enc-hash[readonly] { opacity: .75; font-family: 'JetBrains Mono', monospace; font-size: 11px; }`;
+    document.head.appendChild(st);
+  }
+  // Spend args of type byte[N]: Text (a password, sent as UTF-8) or Hex. byte[] defaults to Text.
+  function _encToggle(btn, enc) {
+    const field = btn.closest('.deploy-field');
+    const inp = field && field.querySelector('input[data-arg]');
+    if (!inp) return;
+    inp.dataset.enc = enc;
+    inp.placeholder = enc === 'text' ? 'password or text, typed exactly' : 'hex bytes';
+    field.querySelectorAll('.enc-opt').forEach(b => b.classList.toggle('enc-on', b === btn));
+    inp.focus();
+  }
+
   function ensureKsmNudgeStyle() {
     if (document.getElementById('ksmNudgeStyle')) return;
     const st = document.createElement('style');
@@ -2996,11 +3123,13 @@ function refreshDeployDropdowns() {
       logToConsole('Connected, but the session token carries no wallet address — please reconnect');
       return;
     }
+    const prevKey = workspaceKey();
     authToken = data.token;
     connectedWallet = data.walletType || localStorage.getItem('kc_wallet') || null;
     currentUser = user;
     userPubkey = currentUser.publicKey || currentUser.profile?.public_key || null;
     localStorage.setItem('kc_user', JSON.stringify(currentUser));
+    if (workspaceKey() !== prevKey) { saveWorkspaceNow(prevKey); if (editor) loadWorkspace(); }
     renderAuth();
     pingSession('connect');
     logToConsole(`Connected via ${connectedWallet || 'account'}: ${formatAddress(currentUser.address)}`);
@@ -3151,6 +3280,7 @@ function refreshDeployDropdowns() {
 
   function logout() {
     stopPing();
+    saveWorkspaceNow();            // this wallet's tabs come back on the next connect
     authToken = null;
     currentUser = null;
     connectedWallet = null;
@@ -3158,6 +3288,7 @@ function refreshDeployDropdowns() {
     if (typeof window.KasperoConnect !== 'undefined') {
       KasperoConnect.disconnect();
     }
+    if (editor) loadWorkspace();   // the not-connected set (welcome on a first visit)
     renderAuth();
     logToConsole('Disconnected');
     showStart();
@@ -3436,7 +3567,7 @@ function refreshDeployDropdowns() {
     let code = raw.trim();
     code = code.replace(/^```(?:silverscript|sil|javascript|js)?\s*\n?/i, '');
     code = code.replace(/\n?```\s*$/i, '');
-    code = code.replace(/<[^>]+>/g, '');
+    // No tag stripping: `<` / `>` are comparisons here, and the code is shown with textContent
     if (!code.includes('pragma') && !code.includes('contract') && !code.startsWith('//')) return null;
     return code.trim();
   }
@@ -3627,9 +3758,10 @@ function refreshDeployDropdowns() {
 // showMyContracts() — Show Contracts Table
 // ════════════════════════════════════════════════════════════════════════════
   // ── State for table sort/filter (lives in App closure) ─────────────
-  let _mcSort = { col: 'created', dir: 'desc' };
+  let _mcSort = { col: 'status', dir: 'asc' };   // status = the ready order (see _mcReadiness)
   let _mcSearch = '';
-  let _mcFilterStatus = 'all';
+  let _mcFilterStatus = 'all';   // legacy, unused since the tabs
+  let _mcTab = 'all';            // all | spendable | locked | shared | kcc20 | empty
   let _mcExpandedId = null;
   let _mcShowArchived = false;
   let _mcPage = 1;
@@ -3672,24 +3804,258 @@ function refreshDeployDropdowns() {
       // Reset expand state on fresh load
       _mcExpandedId = null;
 
+      // Paint from the server's snapshot (no node wait), then ask for a fresh check
+      _mcApplyStatuses(data.contracts, null, data.serverNow);
+
       // Render the full table UI
       _renderContractsTable(body, data.contracts);
 
-      // Fire async balance fetches for all unique addresses
-      _mcFetchLiveBalances(data.contracts);
+      // One batched chain check for every row; rows that moved flash once
+      _mcRefresh();
+      _mcStartAutoRefresh();
 
       // Open straight onto one covenant (used after joining via a share link)
       if (expandId) {
         const target = data.contracts.find(c => c.id === expandId || (c.allIds || []).includes(expandId));
         if (target) {
-          _mcSearch = ''; _mcFilterStatus = 'all'; _mcPage = 1;
-          _mcToggleExpand(target.id);
+          _mcSearch = ''; _mcTab = 'all'; _mcPage = 1;
+          _mcRebuildRows(data.contracts);
+          showContractDetail(target.id);
         }
       }
 
     } catch (err) {
       body.innerHTML = `<div class="contracts-empty">Network error: ${esc(err.message)}</div>`;
     }
+  }
+
+  // ── Snapshot (CONTRACT_STATUS) → row fields ─────────────────────
+  // c.status is the server's dated copy of the chain (null = not checked yet).
+  // _liveBalance stays the field the rest of the page reads.
+  let _mcSkew = 0;                 // server clock minus ours, so "ago" and "in" agree with the server
+  let _mcLastCheck = null;         // newest checkedAt across rows
+  let _mcNodeError = null;
+  let _mcRefreshing = false;
+  let _mcAutoTimer = null;
+  const _mcNow = () => Date.now() + _mcSkew;
+
+  function _mcApplyStatuses(contracts, refresh, serverNow) {
+    if (serverNow) _mcSkew = Number(serverNow) - Date.now();
+    for (const c of contracts) {
+      if (refresh) {
+        if (refresh.statuses && refresh.statuses[c.contractAddress]) c.status = refresh.statuses[c.contractAddress];
+        if (refresh.proposals) c.openProposals = refresh.proposals[c.contractAddress] || [];
+        c._checkDone = true;
+      }
+      if (c.status) {
+        c._liveBalance = c.status.balanceSompi;
+        if (!_mcLastCheck || c.status.checkedAt > _mcLastCheck) _mcLastCheck = c.status.checkedAt;
+      }
+    }
+  }
+
+  function _mcAgo(ms) {
+    const s = Math.max(0, Math.round((_mcNow() - ms) / 1000));
+    if (s < 45) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return m + ' min ago';
+    const h = Math.round(m / 60);
+    if (h < 48) return h + ' h ago';
+    return Math.round(h / 24) + ' days ago';
+  }
+  function _mcIn(ms) {
+    const s = Math.max(0, Math.round((ms - _mcNow()) / 1000));
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min';
+    if (s < 172800) return Math.round(s / 3600) + ' h';
+    return Math.round(s / 86400) + ' days';
+  }
+
+  function _mcUpdateCheckedLine() {
+    const el = document.getElementById('mcChecked');
+    if (!el) return;
+    if (_mcRefreshing && !_mcLastCheck) { el.textContent = 'checking the chain…'; return; }
+    let t = _mcLastCheck ? 'checked ' + _mcAgo(_mcLastCheck) : 'not checked yet';
+    if (_mcNodeError) t += ' · node unreachable, showing the last check';
+    el.textContent = t;
+  }
+
+  async function _mcRefresh() {
+    const container = document.getElementById('contractsModalBody');
+    const contracts = container && container._mcContracts;
+    if (!contracts || _mcRefreshing || !authToken) return;
+    _mcRefreshing = true;
+    _mcUpdateCheckedLine();
+    try {
+      const resp = await fetch('/api/contracts/refresh', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      const ct = resp.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { _mcNodeError = 'HTTP ' + resp.status; return; }
+      const data = await resp.json();
+      if (!data.success) { _mcNodeError = data.error || 'refresh failed'; return; }
+      _mcNodeError = data.nodeError || null;
+      const before = _mcVisibleIds();
+      _mcApplyStatuses(contracts, data, data.serverNow);
+      const moved = new Set(data.moved || []);
+      const order = _mcFilterAndSort(contracts).map(c => c.id);
+      if (before.join(',') !== order.join(',')) {
+        _mcRebuildRows(contracts);                              // something changed place
+        if (_mcExpandedId) _loadContractHistory(_mcExpandedId);
+        _mcFlash(contracts, moved);
+      } else {
+        _mcPatchRows(contracts, moved);
+      }
+    } catch (err) {
+      _mcNodeError = err.message;
+    } finally {
+      _mcRefreshing = false;
+      _mcUpdateCheckedLine();
+    }
+  }
+
+  // Ids of every row the filter keeps, in the order shown
+  function _mcVisibleIds() {
+    const container = document.getElementById('contractsModalBody');
+    const contracts = container && container._mcContracts;
+    return contracts ? _mcFilterAndSort(contracts).map(c => c.id) : [];
+  }
+  function _mcFlash(contracts, moved) {
+    for (const c of contracts) {
+      if (!moved.has(c.contractAddress)) continue;
+      const row = document.getElementById(`mc-row-${c.id}`);
+      if (row && row.animate)
+        row.animate([{ backgroundColor: 'rgba(212, 175, 55, 0.28)' }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' });
+    }
+  }
+
+  // Replace visible rows in place (an open detail row and its history stay as they are)
+  function _mcPatchRows(contracts, moved) {
+    for (const c of contracts) {
+      const row = document.getElementById(`mc-row-${c.id}`);
+      if (!row) continue;
+      const tmp = document.createElement('tbody');
+      tmp.innerHTML = _mcRenderRow(c).trim();
+      const fresh = tmp.firstElementChild;
+      if (!fresh) continue;
+      row.replaceWith(fresh);
+      if (moved.has(c.contractAddress) && fresh.animate)
+        fresh.animate([{ backgroundColor: 'rgba(212, 175, 55, 0.28)' }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' });
+    }
+  }
+
+  // While My Contracts is open: the "checked … ago" line ticks every 30 s and the
+  // chain is asked every 60 s (the server skips rows its own watcher checked recently)
+  function _mcStartAutoRefresh() {
+    clearInterval(_mcAutoTimer);
+    let n = 0;
+    _mcAutoTimer = setInterval(() => {
+      const modal = document.getElementById('contractsModal');
+      if (!modal || !modal.classList.contains('visible')) { clearInterval(_mcAutoTimer); _mcAutoTimer = null; return; }
+      n++;
+      if (n % 2 === 0) _mcRefresh(); else _mcUpdateCheckedLine();
+    }, 30000);
+  }
+
+  // Where a row stands for me, for the default order:
+  //   0 ready   money here and a path of mine open now (largest first)
+  //   1 locked  money here, my soonest path opens later (soonest first)
+  //   2 others  money here, no path of mine at all (largest first)
+  //   3 empty   nothing here, or never checked (newest first)
+  function _mcReadiness(c) {
+    const bal = c._liveBalance;
+    if (bal === undefined || bal < 1000000) return { group: 3, wait: 0, bal: bal || 0 };
+    const mine = Array.isArray(c.myPaths) ? c.myPaths
+      : (c.hasSpendPath === false ? [] : (c.mySpendPaths || []));
+    if (!mine.length) return { group: 2, wait: 0, bal };
+    const opens = c.status && c.status.opensAt;
+    if (!opens) {
+      const sp = _isSpendable(c);                           // before the first check: the source estimate
+      return sp.spendable ? { group: 0, wait: 0, bal } : { group: 1, wait: Infinity, bal };
+    }
+    const now = _mcNow();
+    let wait = Infinity;
+    for (const name of mine) {
+      const o = opens[name];
+      const w = !o ? 0 : (o.at === null ? Infinity : Math.max(0, o.at - now));
+      if (w < wait) wait = w;
+    }
+    return wait === 0 ? { group: 0, wait: 0, bal } : { group: 1, wait, bal };
+  }
+  // Tabs. One tab per contract, first match wins: a covenant ID (KCC20) → no balance
+  // (Empty) → someone else's covenant I'm a party of (Shared With You) → none of my
+  // paths open yet (Time Locked) → Spendable. A covenant of mine with money but no path
+  // for my key, or one the node hasn't answered for yet, shows under All only.
+  const MC_TABS = [
+    { key: 'all',       label: 'All' },
+    { key: 'spendable', label: 'Spendable' },
+    { key: 'locked',    label: 'Time Locked' },
+    { key: 'shared',    label: 'Shared With You' },
+    { key: 'kcc20',     label: 'KCC20' },
+    { key: 'empty',     label: 'Empty' },
+  ];
+  function _mcCategory(c) {
+    if (c.covenantId) return 'kcc20';
+    const st = _contractStatus(c);
+    if (st === 'redeemed' || st === 'empty') return 'empty';
+    if (c.relation === 'external') return 'shared';
+    if (st === 'unknown') return 'other';
+    const r = _mcReadiness(c);
+    if (r.group === 0) return 'spendable';
+    if (r.group === 1) return 'locked';
+    return 'other';
+  }
+  // A covenant-ID row: a real KCC-20 token once its program declares KCC20State,
+  // until then the launchpad's genesis test covenant.
+  function _mcKind(c) {
+    if (!c.covenantId) return null;
+    return /KCC20State/.test(c.sourceCode || '') ? 'KCC-20' : 'Genesis';
+  }
+  function _mcRenderTabs(contracts) {
+    const el = document.getElementById('mcTabs');
+    if (!el) return;
+    const base = contracts.filter(c => _mcShowArchived ? !!c.archivedAt : !c.archivedAt);
+    const counts = { all: base.length };
+    for (const c of base) { const k = _mcCategory(c); counts[k] = (counts[k] || 0) + 1; }
+    el.innerHTML = MC_TABS.map(t =>
+      `<button class="mc-tab${_mcTab === t.key ? ' mc-tab-active' : ''}" role="tab" aria-selected="${_mcTab === t.key}" onclick="App._mcSetTab('${t.key}')">${t.label}<span class="mc-tab-count">${counts[t.key] || 0}</span></button>`
+    ).join('');
+  }
+  function _mcSetTab(key) {
+    _mcTab = key; _mcPage = 1;
+    const container = document.getElementById('contractsModalBody');
+    if (container && container._mcContracts) _mcRebuildRows(container._mcContracts);
+  }
+
+  function _mcReadyCompare(a, b) {
+    const ra = _mcReadiness(a), rb = _mcReadiness(b);
+    if (ra.group !== rb.group) return ra.group - rb.group;
+    if (ra.group === 1 && ra.wait !== rb.wait) return ra.wait - rb.wait;
+    if (ra.group === 3) return new Date(b.deployedAt) - new Date(a.deployedAt);
+    return rb.bal - ra.bal;
+  }
+
+  // Lock cell from the snapshot: the soonest path still closed, by name
+  function _mcLockFromStatus(c) {
+    const opens = c.status && c.status.opensAt;
+    if (!opens) return null;
+    const list = Object.entries(opens);
+    if (!list.length) return null;
+    const now = _mcNow();
+    const closed = list.filter(([, o]) => o.at !== null && o.at > now).sort((a, b) => a[1].at - b[1].at);
+    const waiting = list.filter(([, o]) => o.at === null);
+    if (closed.length) {
+      const [name, o] = closed[0];
+      const when = new Date(o.at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<span class="mc-lock-pending" title="${esc(name)} opens ${esc(when)}">${esc(name)} in ${_mcIn(o.at)}</span>`;
+    }
+    if (waiting.length && !(c.status.utxoCount > 0)) {
+      const [name, o] = waiting[0];
+      const d = o.waitDays !== null && o.waitDays !== undefined ? (o.waitDays >= 1 ? (+o.waitDays.toFixed(1)) + 'd' : Math.round(o.waitDays * 24) + 'h') : '';
+      return `<span class="mc-cell-muted" title="${esc(name)} counts from each deposit">${esc(name)}: ${d} after a deposit</span>`;
+    }
+    return '<span class="mc-lock-done">✓ Open</span>';
   }
 
  async function _mcFetchLiveBalances(contracts) {
@@ -3815,9 +4181,15 @@ function refreshDeployDropdowns() {
       funded:   { label: 'Active',   cls: 'mc-status-funded' },
       redeemed: { label: 'Withdrawn', cls: 'mc-status-archived' },
       empty:    { label: 'Empty',    cls: 'mc-status-unfunded' },
-      unknown:  { label: 'Checking…', cls: 'mc-status-archived' },
+      unknown:  { label: c._checkDone ? 'Not checked' : 'Checking…', cls: 'mc-status-archived' },
     };
-    const st = statusMap[status] || statusMap.unknown;
+    let st = statusMap[status] || statusMap.unknown;
+    if (status === 'funded') {
+      const r = _mcReadiness(c);
+      st = r.group === 0 ? { label: 'Ready', cls: 'mc-status-funded' }
+         : r.group === 1 ? { label: 'Locked', cls: 'mc-status-archived' }
+         : { label: 'Not yours', cls: 'mc-status-archived' };
+    }
 
     // ── Balance display ─────────────────────────────────────────────
     let balanceHtml;
@@ -3833,14 +4205,31 @@ function refreshDeployDropdowns() {
       } else {
         balanceHtml = `<span class="mc-cell-muted">0 KAS</span>`;
       }
+    } else if (c._checkDone) {
+      // Chain is truth: never a 0 we didn't read
+      balanceHtml = `<span class="mc-cell-muted" title="The node has not answered for this address yet">not checked yet</span>`;
     } else {
-      // Chain is truth: until the node answers, show nothing that looks like a balance
       balanceHtml = `<span class="mc-cell-muted" title="Waiting for the node">…</span>`;
       balanceLoadingClass = ' mc-balance-loading';
     }
+    if (c.status && c.status.checkedAt) {
+      const moved = c.status.movedAt ? ' · last moved ' + _mcAgo(c.status.movedAt) : '';
+      balanceHtml = `<span title="Checked ${esc(_mcAgo(c.status.checkedAt))}${esc(moved)}">${balanceHtml}</span>`;
+    }
 
-    // ── Age lock ────────────────────────────────────────────────────
-    const ageLockHtml = _mcAgeLockHtml(src, c);
+    // ── Age lock (snapshot first; source reading only before the first check) ──
+    const ageLockHtml = _mcLockFromStatus(c) || _mcAgeLockHtml(src, c);
+
+    // ── Open proposals: whose turn ──────────────────────────────────
+    const props = c.openProposals || [];
+    let proposalBadge = '';
+    if (props.length) {
+      const mine = props.find(p => p.you === 'sign');
+      const p0 = mine || props[0];
+      proposalBadge = mine
+        ? `<span class="mc-relation-badge" title="${esc(p0.entry)}: ${p0.signedCount} of ${p0.requiredCount} signed">your turn to sign</span>`
+        : `<span class="mc-relation-badge" title="${esc(p0.entry)}: waiting on ${esc((p0.waitingOn || []).join(', '))}">${p0.signedCount}/${p0.requiredCount} signed</span>`;
+    }
 
     // ── Created date ────────────────────────────────────────────────
     const createdDisplay = _mcFormatDate(c.deployedAt);
@@ -3858,15 +4247,9 @@ function refreshDeployDropdowns() {
       ? `<span class="mc-relation-badge" title="Shared with you: you are ${esc((c.myRoles || []).join(', ') || 'a party')}">external${(c.myRoles || []).length ? ' · ' + esc(c.myRoles.join(', ')) : ''}</span>`
       : '';
 
-    // ── Archive pill (creator only: archiving hides the row for everyone) ──
-    const isArchived = !!c.archivedAt;
-    const archivePill = isExternal ? '' : `<button class="mc-archive-pill${isArchived ? ' mc-archive-pill-active' : ''}"
-      onclick="event.stopPropagation(); App._mcArchiveContract(${c.id}, ${!isArchived}, this);"
-      title="${isArchived ? 'Unarchive contract' : 'Archive contract'}">
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-      ${isArchived ? 'Unarchive' : 'Archive'}
-    </button>`;
-
+    // ── Kind badge for covenant-ID rows (archive lives on the details page now) ──
+    const kind = _mcKind(c);
+    const kindBadge = kind ? `<span class="mc-kind-badge mc-kind-${kind === 'KCC-20' ? 'kcc20' : 'genesis'}" title="Covenant ID ${esc(c.covenantId)}">${kind}</span>` : '';
     // ── Funding count badge (shows if multiple fundings) ────────────
     const fundingCount = (c.fundingHistory || []).length;
     const fundingBadge = fundingCount > 1
@@ -3876,11 +4259,13 @@ function refreshDeployDropdowns() {
     return `
       <tr class="mc-row${isExpanded ? ' mc-row-expanded' : ''} mc-row-${status}" id="mc-row-${c.id}"
           data-address="${esc(addr)}" data-redeemed="${!!c.redeemedAt}"
-          onclick="App._mcToggleExpand(${c.id})">
+          onclick="App.showContractDetail(${c.id})" title="Open details">
         <td class="mc-td mc-td-name">
           ${_mcTypeIcon(src)}
           <span class="mc-name">${esc(c.contractName)}</span>
+          ${kindBadge}
           ${relationBadge}
+          ${proposalBadge}
           ${fundingBadge}
         </td>
         <td class="mc-td mc-td-status">
@@ -3891,7 +4276,6 @@ function refreshDeployDropdowns() {
         <td class="mc-td mc-td-created">${createdDisplay}</td>
         <td class="mc-td mc-td-address" title="${esc(addr)}">
           <span class="mc-addr-text">${truncated}</span>
-          ${archivePill}
         </td>
       </tr>`;
   }
@@ -3903,24 +4287,20 @@ function _renderContractsTable(container, contracts) {
       <div class="mc-toolbar">
         <div class="mc-toolbar-left">
           <span class="mc-count">${contracts.length}</span>
+          <span class="mc-cell-muted" id="mcChecked" style="margin-left:10px;font-size:11px;"></span>
         </div>
         <div class="mc-toolbar-right">
           <div class="mc-search-wrap">
             <svg class="mc-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" class="mc-search" id="mcSearch" placeholder="Search contracts..." value="${esc(_mcSearch)}" />
           </div>
-          <select class="mc-filter" id="mcFilterStatus">
-            <option value="all"${_mcFilterStatus === 'all' ? ' selected' : ''}>All Status</option>
-                        <option value="funded"${_mcFilterStatus === 'funded' ? ' selected' : ''}>Active</option>
-                        <option value="empty"${_mcFilterStatus === 'empty' ? ' selected' : ''}>Empty</option>
-                        //<option value="redeemed"${_mcFilterStatus === 'redeemed' ? ' selected' : ''}>Redeemed</option>
-          </select>
           <button class="mc-archive-toggle${_mcShowArchived ? ' mc-archive-toggle-active' : ''}" id="mcArchiveToggle" title="${_mcShowArchived ? 'Showing archived contracts' : 'Show archived contracts'}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
             Archived
           </button>
         </div>
-      </div>`;
+      </div>
+      <div class="mc-tabs" id="mcTabs" role="tablist" aria-label="Contract categories"></div>`;
 
     // ── Table (empty tbody — _mcRebuildRows populates it) ───────────
     html += `<div class="mc-table-wrap"><table class="mc-table"><thead><tr>`;
@@ -3951,7 +4331,6 @@ function _renderContractsTable(container, contracts) {
 
     // ── Wire up events ──────────────────────────────────────────────
     const searchEl = document.getElementById('mcSearch');
-    const filterEl = document.getElementById('mcFilterStatus');
 
     // Debounced search
     let searchTimer;
@@ -3964,11 +4343,6 @@ function _renderContractsTable(container, contracts) {
       }, 150);
     });
 
-    filterEl.addEventListener('change', () => {
-      _mcFilterStatus = filterEl.value;
-      _mcPage = 1;
-      _mcRebuildRows(contracts);
-    });
 
     // Archive toggle — re-fetches from server since archived contracts aren't in the current data set
     const archiveToggle = document.getElementById('mcArchiveToggle');
@@ -3981,6 +4355,7 @@ function _renderContractsTable(container, contracts) {
     container._mcContracts = contracts;
     _mcPage = 1;
     _mcRebuildRows(contracts);
+    _mcUpdateCheckedLine();
   }
 
   // ── Rebuild just the table body (called on search/filter/sort change) ─
@@ -3996,7 +4371,7 @@ function _renderContractsTable(container, contracts) {
           const pageItems = filtered.slice(startIdx, startIdx + _mcPageSize);
 
           if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="mc-empty-row">${_mcSearch || _mcFilterStatus !== 'all' ? 'No contracts match your filters' : 'No contracts deployed yet'}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="mc-empty-row">${_mcSearch ? 'No contracts match your search' : _mcTab !== 'all' ? 'Nothing here right now' : 'No contracts deployed yet'}</td></tr>`;
           } else {
                 let html = '';
                 for (const c of pageItems) {
@@ -4007,6 +4382,8 @@ function _renderContractsTable(container, contracts) {
                 }
                 tbody.innerHTML = html;
           }
+
+          _mcRenderTabs(contracts);
 
           // Update count
           const countEl = document.querySelector('.mc-count');
@@ -4107,8 +4484,8 @@ function _renderContractsTable(container, contracts) {
     }
 
     // Status filter
-    if (_mcFilterStatus !== 'all') {
-      data = data.filter(c => _contractStatus(c) === _mcFilterStatus);
+    if (_mcTab !== 'all') {
+      data = data.filter(c => _mcCategory(c) === _mcTab);
     }
 
     // Sort
@@ -4116,7 +4493,7 @@ function _renderContractsTable(container, contracts) {
       const dir = _mcSort.dir === 'asc' ? 1 : -1;
       switch (_mcSort.col) {
         case 'name':    return dir * a.contractName.localeCompare(b.contractName);
-        case 'status':  return dir * _contractStatus(a).localeCompare(_contractStatus(b));
+        case 'status':  return dir * _mcReadyCompare(a, b);
         case 'locked': {
                   const aVal = a._liveBalance !== undefined ? a._liveBalance : (a.amountTkas || 0) * 1e8;
                   const bVal = b._liveBalance !== undefined ? b._liveBalance : (b.amountTkas || 0) * 1e8;
@@ -4236,6 +4613,11 @@ function _renderContractsTable(container, contracts) {
     } catch (err) {
       logToConsole('Archive error: ' + err.message);
     }
+  }
+
+  function _mcArchiveFromDetail(id, archive) {
+    closeModal();
+    _mcArchiveContract(id, archive);
   }
 
   // ── Contract type icon (SVG, uses currentColor for theme compat) ──
@@ -4607,6 +4989,19 @@ function _mcRenderExpanded(c) {
     const argRow = (p, inp) => {
       const t = (inp.type || '').toLowerCase();
       if (t === 'sig') return `<div class="deploy-detail"><span class="deploy-detail-label">${esc(inp.name)}</span> <span class="deploy-type">sig</span> <span class="deploy-hint">your wallet signs this</span></div>`;
+      if (t.startsWith('byte[')) {
+        ensureEncStyle();
+        const enc = t === 'byte[]' ? 'text' : 'hex';
+        return `<div class="deploy-field">
+          <label class="deploy-label">${esc(inp.name)} <span class="deploy-type">${esc(inp.type)}</span></label>
+          <div class="enc-toggle">
+            <button type="button" class="enc-opt${enc === 'text' ? ' enc-on' : ''}" onclick="event.preventDefault(); App._encToggle(this, 'text')">Password / text</button>
+            <button type="button" class="enc-opt${enc === 'hex' ? ' enc-on' : ''}" onclick="event.preventDefault(); App._encToggle(this, 'hex')">Hex</button>
+          </div>
+          <input type="text" class="deploy-input" data-path="${esc(p.name)}" data-arg="${esc(inp.name)}" data-enc="${enc}"
+            placeholder="${enc === 'text' ? 'password or text, typed exactly' : 'hex bytes'}" autocomplete="off" spellcheck="false">
+        </div>`;
+      }
       const ph = t === 'pubkey' ? 'kaspa:q… or 64-hex pubkey'
              : t === 'int' ? 'integer' : t === 'temporal' ? 'ms timestamp or ISO date'
              : t === 'string' ? 'text' : t === 'bool' ? 'true / false'
@@ -4654,7 +5049,9 @@ function _mcRenderExpanded(c) {
     const sel = document.querySelector('input[name="spendPath"]:checked');
     if (!sel) return;
     const args = {};
-    document.querySelectorAll(`.deploy-input[data-path="${CSS.escape(sel.value)}"]`).forEach(inp => { args[inp.dataset.arg] = inp.value.trim(); });
+    document.querySelectorAll(`.deploy-input[data-path="${CSS.escape(sel.value)}"]`).forEach(inp => {
+      args[inp.dataset.arg] = inp.dataset.enc === 'text' ? 'text:' + inp.value.trim() : inp.value.trim();
+    });
     _executeRedeem(contractId, sel.value, args);
   }
 
@@ -4997,6 +5394,29 @@ function _mcRenderExpanded(c) {
       </div>`;
     }
 
+    // ── Covenant ID (KIP-20): the coin's identity, stable across state changes ──
+    if (c.covenantId) {
+      const kind = _mcKind(c);
+      html += `
+        <div class="deploy-section">
+          <div class="deploy-section-title">Covenant ID <span class="mc-kind-badge mc-kind-${kind === 'KCC-20' ? 'kcc20' : 'genesis'}">${kind}</span></div>
+          <div class="deploy-address" onclick="navigator.clipboard.writeText('${esc(c.covenantId)}'); App.logToConsole('Covenant ID copied');">
+            ${esc(c.covenantId)}
+            <span class="deploy-copy-hint">click to copy</span>
+          </div>
+          <div class="cd-parties-note">${kind === 'KCC-20'
+            ? 'This token is identified by its covenant ID. Its address changes every time it moves; the ID never does.'
+            : 'A test covenant from the launchpad: the coin was born with this ID. It holds KAS, not tokens.'}</div>
+        </div>`;
+    }
+
+    // ── Activity (live from chain) ───────────────────────────────────────────
+    html += `
+      <div class="deploy-section">
+        <div class="deploy-section-title">Activity</div>
+        <div class="mc-history" id="mc-history-${c.id}"><span class="mc-history-loading">Loading on-chain activity…</span></div>
+      </div>`;
+
     // ── Contract address ─────────────────────────────────────────────────────
     html += `
       <div class="deploy-section">
@@ -5074,13 +5494,27 @@ function _mcRenderExpanded(c) {
 
     body.innerHTML = html;
 
+    // Actions: the tools on the left, the two things people come here for on the right
+    const spend = _isSpendable(c);
+    const isArchived = !!c.archivedAt, isExternal = c.relation === 'external';
+    const pageLink = shareLinkFor(c);
     footer.innerHTML = `
-      <button class="btn btn-secondary" onclick="App.closeModal()">Close</button>
-      ${c.shareToken ? `<button class="btn btn-secondary" onclick="App.copyShareLink(${c.id}, this)">Share with parties</button>` : ''}
-      ${c.shareToken ? `<a class="btn btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center;" href="${esc(ksmUrl(c.shareToken))}" download title="The covenant as a file: with it and your key you can withdraw using any compatible tool, even without the Studio">Download .ksm</a>` : ''}
-      <button class="btn btn-primary" onclick="window.open('${explorerAddr}', '_blank')">View on Explorer \u2197</button>`;
+      <div class="cd-actions">
+        <div class="cd-actions-tools">
+          <button class="btn btn-secondary btn-sm" onclick="App.openContractInEditor(${c.id})">Open in Editor</button>
+          <a class="btn btn-secondary btn-sm cd-link" href="${explorerAddr}" target="_blank" rel="noopener">Explorer \u2197</a>
+          ${c.shareToken ? `<button class="btn btn-secondary btn-sm" onclick="App.copyShareLink(${c.id}, this)" title="Copy the link the other parties open to join this covenant">Copy share link</button>` : ''}
+          ${c.shareToken ? `<a class="btn btn-secondary btn-sm cd-link" href="${esc(ksmUrl(c.shareToken))}" download title="The covenant as a file: with it and your key you can withdraw using any compatible tool, even without the Studio">.ksm</a>` : ''}
+          ${isExternal ? '' : `<button class="btn btn-secondary btn-sm" onclick="App._mcArchiveFromDetail(${c.id}, ${!isArchived})">${isArchived ? 'Unarchive' : 'Archive'}</button>`}
+        </div>
+        <div class="cd-actions-main">
+          ${pageLink ? `<a class="btn btn-secondary cd-link" href="${esc(pageLink)}" target="_blank" rel="noopener">Covenant page \u2197</a>` : ''}
+          <button class="btn btn-primary" ${spend.spendable ? `onclick="App.redeemContract(${c.id})"` : 'disabled'} ${spend.reason ? `title="${esc(spend.reason)}"` : ''}>Spend${!spend.spendable && spend.reason ? ' \u00b7 ' + esc(spend.reason) : ''}</button>
+        </div>
+      </div>`;
 
     showModal('redeemModal');
+    _loadContractHistory(c.id);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -5509,16 +5943,16 @@ function _showSafetyWarnings(warnings, constructorArgs) {
     insertSnippet, insertSnippetAtCursor, openSnippetAsFile, previewSnippet,
     toggleSnippetCategory, toggleSection,
     editorAction, toggleTheme, toggleBottomPanel, switchPanelTab,
-    showDeploy, selectTkas, selectFunder, selectParamTkas, selectParamKas, selectParamDays, selectParamDate, deployContract, showDeployResult, showDeployRateLimit,
+    closeAllFiles, showDeploy, selectTkas, selectFunder, selectParamTkas, selectParamKas, selectParamDays, selectParamDate, setHashMode, hashParamInput, deployContract, showDeployResult, showDeployRateLimit,
     retryFund, retryConfirm, kaslaConfirmAnswer,
     showMyContracts, showContractDetail, redeployContract, redeemContract, _executeRedeem, _signAndBroadcastSpend, showReference, showShortcuts, showAbout, showLogin, logout,
-    copyShareLink, _spendPathChanged, _submitPathForm, _retrySpend,
+    copyShareLink, _spendPathChanged, _submitPathForm, _retrySpend, _encToggle,
     showFileContextMenu, hideContextMenu,
     closeModal, openContractInEditor,
     compileFileById, downloadFileById,
-        _mcSortBy, _mcToggleExpand, _mcArchiveContract, _mcGoToPage,
+        _mcSortBy, _mcToggleExpand, _mcArchiveContract, _mcGoToPage, _mcSetTab, _mcArchiveFromDetail,
     getUserPubkey, kaspaAddressToPubkey,
-        _mcFetchLiveBalances, _mcUpdateBalanceCell,
+        _mcFetchLiveBalances, _mcUpdateBalanceCell, _mcRefresh,
     showAiGenerate, aiGenerate, aiUseCode, aiSuggest, aiToggleSuggestions,
     showStart, startBuild, startPickBack, startPickTemplate, startDescribe, startWrite,
         openWalletDrawer, closeWalletDrawer, selectWalletForParam, clearParamHint,

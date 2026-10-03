@@ -1,4 +1,4 @@
-/* BUILD MARKER: covenant-page-2026-09-24 */
+/* BUILD MARKER: mc-tabs-2026-10-02b — My Contracts tabs, kind badges, details actions, stable height */
 /* ─── CSS Variables (Dark Theme Default) ──────────────── */
 :root,
 [data-theme="dark"] {
@@ -2368,6 +2368,53 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* Tabs under the toolbar */
+.mc-tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 16px 10px; border-bottom: 1px solid rgba(128, 128, 128, 0.18); }
+.mc-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: inherit; font-size: 12px; letter-spacing: 0.2px;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  background: transparent; color: inherit; opacity: 0.72;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+}
+.mc-tab:hover { opacity: 1; }
+.mc-tab:focus-visible { outline: 2px solid #c8a44e; outline-offset: 2px; }
+.mc-tab-active { opacity: 1; background: #c8a44e; border-color: #c8a44e; color: #1a1c24; font-weight: 600; }
+.mc-tab-count { font-size: 11px; padding: 0 6px; border-radius: 999px; background: rgba(128, 128, 128, 0.18); }
+.mc-tab-active .mc-tab-count { background: rgba(26, 28, 36, 0.18); }
+ 
+/* Rows open the details page */
+.mc-row { cursor: pointer; }
+ 
+/* Covenant-ID badges */
+.mc-kind-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; vertical-align: 1px;
+}
+.mc-kind-kcc20   { background: rgba(112, 199, 186, 0.18); color: #3fa595; border: 1px solid rgba(112, 199, 186, 0.45); }
+.mc-kind-genesis { background: rgba(200, 164, 78, 0.16);  color: #b08a2e; border: 1px solid rgba(200, 164, 78, 0.45); }
+ 
+/* Details page actions: tools left, the two main moves right */
+#redeemModalFooter .cd-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+.cd-actions-tools, .cd-actions-main { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cd-actions .btn-sm { padding: 6px 10px; font-size: 12px; }
+.cd-actions .cd-link { text-decoration: none; display: inline-flex; align-items: center; }
+.cd-actions .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 640px) { .cd-actions-main { width: 100%; justify-content: flex-end; } }
+ 
+/* Stable size (mc-tabs-2026-10-02b): the window keeps one height whatever the tab holds,
+   filling the screen; the table scrolls inside it and the pager stays at the bottom. */
+#contractsModal.visible {
+  display: flex; flex-direction: column;
+  height: calc(100vh - 48px); height: calc(100dvh - 48px);
+  max-height: none;
+}
+#contractsModal .modal-header { flex: none; }
+#contractsModalBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#contractsModalBody .mc-toolbar, #contractsModalBody .mc-tabs, #contractsModalBody .mc-footer { flex: none; }
+#contractsModalBody .mc-table-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; max-height: none; }
+
+
 /* ── Search ────────────────────────────────────────────────────────── */
 .mc-search-wrap {
   position: relative;
@@ -4415,3 +4462,4 @@ html:has(body.cv-page) { overflow: auto; height: auto; }
 /* The wallet drawer must sit above the wizard (910) as well as the modals (510) */
 .wallet-drawer-backdrop { z-index: 950; }
 .wallet-drawer { z-index: 960; }
+

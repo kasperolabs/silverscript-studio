@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KasDash: a delivery order settled by a Kaspa covenant</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="kasdash-app.css?v=3">
+<script>
+  // Simulation by default; "Run it for real" deploys a DoorDashEscrow covenant on mainnet through the Studio.
+  window.KasDash = {
+    api: '',                               // the Studio (same origin)
+    merchant: 'kpm_v90br29k',              // KasperoConnect merchant id (same as the Studio)
+    wallets: ['kasware', 'kastle', 'kaspire', 'kasla'],
+    rateUsdPerKas: 0.03, salesTax: 0.089, dasherPay: 0.025, irsSetAside: 0.10, refundDays: 30
+  };
+</script>
+</head>
+<body>
+<p class="kd-demo live" id="demoLine" hidden></p>
+<div class="kd-wrap">
+  <main class="kd-app" id="app" aria-live="polite"></main>
+  <aside class="kd-panel" id="panel" aria-label="Where your money goes"></aside>
+</div>
+<div class="kd-sheet-bg" id="sheetBg" hidden></div>
+<section class="kd-sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-label="Approve payment"></section>
+<script src="https://kasperopay.com/connect/widget.js"></script>
+<script src="/covenant-actions.js?v=4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="kasdash-app.js?v=5"></script>
+</body>
+</html>

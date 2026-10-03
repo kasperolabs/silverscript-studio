@@ -1,4 +1,4 @@
-// BUILD MARKER: sequencer-c2d-2026-09-28
+// BUILD MARKER: mc-tabs-2026-10-02b
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -10,8 +10,9 @@ const app = express();
 const blake2bModule = require('blake2b');
 const jwt = require('jsonwebtoken');
 globalThis.WebSocket = require('websocket').w3cwebsocket; // RpcClient transport (studio wallet retired)
+const KASPA_SDK = process.env.KASPA_SDK_PATH || './vendor/kaspa-wasm32-sdk/nodejs/kaspa';
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
-const { Address, addressFromScriptPublicKey, ScriptPublicKey } = require('kaspa');
+const { Address, addressFromScriptPublicKey, ScriptPublicKey } = require(KASPA_SDK);
 const redeemRoutes = require('./routes/redeem');
 // Kaspa Spend Map (.ksm) library, vendored from npm (vendor/kaspa-ksm) so no
 // `npm install` runs in this directory. Optional: without it the export returns 503.
@@ -75,6 +76,11 @@ if (offers) {
   app.use('/api', offers.router);
   app.get('/offer/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'freelancer.html')));
 }
+
+// KasDash demo, live mode: routes/kasdash.js + public/kasdash-app.* (marker: kasdash-mount-2026-10-03)
+let kasdash = null;
+try { kasdash = require('./routes/kasdash'); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+if (kasdash) app.use('/api', kasdash.router);
 
 // ─── MySQL Connection ───────────────────────────────────────────────
 const mysql = require('mysql2');
@@ -779,6 +785,11 @@ Generate clear, well-commented SilverScript that compiles on silverc v1. Use des
 const aiRateLimits = new Map();
 const AI_RATE_LIMIT = 10;
 const AI_RATE_WINDOW = 3600000;
+// Daily spend caps for /api/generate (ai-cap-2026-09-30), counted in ai_logs over
+// a rolling 24 h. Every call that reaches Anthropic writes its row first, so failed
+// calls count too. Override in .env.
+const AI_DAILY_PER_WALLET = parseInt(process.env.AI_DAILY_PER_WALLET, 10) || 20;
+const AI_DAILY_TOTAL      = parseInt(process.env.AI_DAILY_TOTAL, 10) || 300;
 
 const PROMPT_BLOCKLIST = [
   /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|rules|prompts)/i,
@@ -811,7 +822,8 @@ function isPromptSafe(prompt) {
 function sanitizeOutput(code) {
   if (!code || typeof code !== 'string') return null;
   code = code.trim();
-  code = code.replace(/<[^>]+>/g, '');
+  // No tag stripping: in code `<` and `>` are comparisons, and the client renders
+  // with textContent / Monaco, so nothing here is ever parsed as HTML.
   code = code.replace(/^```(?:silverscript|sil|javascript|js)?\s*\n?/i, '');
   code = code.replace(/\n?```\s*$/i, '');
   const lines = code.split('\n').filter(line => {
@@ -841,10 +853,10 @@ function parseAiResponse(text) {
       return { message: '', code: trimmed };
     }
     // Probably a clarifying question or explanation only
-    return { message: trimmed.replace(/<[^>]+>/g, ''), code: '' };
+    return { message: trimmed, code: '' };   // rendered with textContent
   }
 
-  const message = text.substring(0, idx).trim().replace(/<[^>]+>/g, '');
+  const message = text.substring(0, idx).trim();
   const rawCode = text.substring(idx + delimiter.length).trim();
 
   return { message, code: rawCode };
@@ -895,7 +907,40 @@ app.post('/api/generate', requireAuth, async (req, res) => {
   aiRateLimits.set(limiterKey, entry);
 
   const aiModel = process.env.AI_MODEL || 'claude-sonnet-5';
+
+  // Daily caps. The row is written before the call and completed after it, so
+  // a failed or cut-off generation still counts. If the check can't run, refuse.
+  let logId = null;
+  try {
+    const db = dbPool.promise();
+    await db.query('INSERT INTO users (wallet_address) VALUES (?) ON DUPLICATE KEY UPDATE wallet_address = wallet_address', [req.walletAddress]);
+    const [[u]] = await db.query('SELECT id FROM users WHERE wallet_address = ?', [req.walletAddress]);
+    if (!u) throw new Error('user row missing');
+    const [[c]] = await db.query(
+      'SELECT COUNT(*) AS total, COALESCE(SUM(user_id = ?), 0) AS mine FROM ai_logs WHERE created_at > NOW() - INTERVAL 1 DAY',
+      [u.id]);
+    if (Number(c.total) >= AI_DAILY_TOTAL) {
+      console.warn(`[AI cap] studio-wide limit reached (${c.total}/${AI_DAILY_TOTAL} in 24 h)`);
+      return res.status(429).json({ error: 'The AI assistant has reached its daily limit for the whole Studio. It frees up over the next 24 hours.' });
+    }
+    if (Number(c.mine) >= AI_DAILY_PER_WALLET) {
+      return res.status(429).json({ error: `You have used your ${AI_DAILY_PER_WALLET} AI generations for today. They free up over the next 24 hours.` });
+    }
+    const [ins] = await db.query('INSERT INTO ai_logs (user_id, prompt, model) VALUES (?, ?, ?)', [u.id, logPrompt, aiModel]);
+    logId = ins.insertId;
+  } catch (e) {
+    console.error('[AI cap] check failed, refusing:', e.message);
+    return res.status(503).json({ error: 'The AI assistant is unavailable right now. Try again in a few minutes.' });
+  }
+
   const startMs = Date.now();
+  // Complete the reserved row (fire-and-forget; never blocks the response)
+  const finishLog = (message, code, usage) => {
+    dbPool.query(
+      'UPDATE ai_logs SET response_message = ?, response_code = ?, input_tokens = ?, output_tokens = ?, duration_ms = ? WHERE id = ?',
+      [message || null, code || null, usage?.input_tokens || null, usage?.output_tokens || null, Date.now() - startMs, logId],
+      (err) => { if (err) console.warn('[AI Log] Update failed:', err.message); });
+  };
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -907,7 +952,7 @@ app.post('/api/generate', requireAuth, async (req, res) => {
       },
       body: JSON.stringify({
         model: aiModel,
-        max_tokens: 2048,
+        max_tokens: 8192,
         system: SILVERSCRIPT_SYSTEM_PROMPT,
         messages: apiMessages
       })
@@ -916,6 +961,7 @@ app.post('/api/generate', requireAuth, async (req, res) => {
     if (!response.ok) {
       const errBody = await response.text();
       console.error('Anthropic API error:', response.status, errBody);
+      finishLog(`[error ${response.status}] ${String(errBody).slice(0, 500)}`, null, null);
       return res.status(502).json({ error: 'AI service error — try again' });
     }
 
@@ -926,43 +972,28 @@ app.post('/api/generate', requireAuth, async (req, res) => {
 
     // If there's code, sanitize it
     const code = rawCode ? sanitizeOutput(rawCode) : '';
+    const stopReason = data.stop_reason || 'unknown';
 
     // If we got neither message nor code, something went wrong
     if (!message && !code) {
-      return res.status(422).json({ error: 'AI did not generate a valid response — try rephrasing' });
+      console.warn(`[AI] 422: stop_reason=${stopReason} text_length=${text.length} raw_code_length=${(rawCode || '').length}`);
+      finishLog(`[error 422] stop_reason=${stopReason}, text length ${text.length}`, rawCode || null, data.usage);
+      return res.status(422).json({ error: 'The AI did not produce a usable answer. Try rephrasing.' });
     }
 
-    // ── Log prompt + response to ai_logs ──────────────────────────────
-    const durationMs = Date.now() - startMs;
-    const inputTokens = data.usage?.input_tokens || null;
-    const outputTokens = data.usage?.output_tokens || null;
+    // Cut off at the length limit: say so instead of passing it off as complete
+    let outMessage = message;
+    if (stopReason === 'max_tokens') {
+      console.warn(`[AI] max_tokens hit: text_length=${text.length}`);
+      outMessage = (message ? message + '\n\n' : '') + 'Note: this answer hit the length limit and was cut off, so the code may be incomplete. Ask for a shorter version or one part at a time.';
+    }
 
-    // Upsert user, then insert log (fire-and-forget — don't block the response)
-    dbPool.query(
-      'INSERT INTO users (wallet_address) VALUES (?) ON DUPLICATE KEY UPDATE wallet_address = wallet_address',
-      [req.walletAddress],
-      (upsertErr) => {
-        if (upsertErr) {
-          console.warn('[AI Log] User upsert failed:', upsertErr.message);
-          return;
-        }
-        dbPool.query('SELECT id FROM users WHERE wallet_address = ?', [req.walletAddress], (selErr, rows) => {
-          if (selErr || !rows.length) return;
-          dbPool.query(
-            `INSERT INTO ai_logs (user_id, prompt, response_message, response_code, model, input_tokens, output_tokens, duration_ms)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [rows[0].id, logPrompt, message || null, code || null, aiModel, inputTokens, outputTokens, durationMs],
-            (logErr) => {
-              if (logErr) console.warn('[AI Log] Insert failed:', logErr.message);
-            }
-          );
-        });
-      }
-    );
+    finishLog(outMessage, code, data.usage);
 
-    res.json({ success: true, code: code || '', message: message || '' });
+    res.json({ success: true, code: code || '', message: outMessage || '' });
   } catch (err) {
     console.error('AI generation error:', err);
+    finishLog(`[error 500] ${err.message}`, null, null);
     res.status(500).json({ error: 'Internal error during AI generation' });
   }
 });
@@ -1698,6 +1729,14 @@ function hasSpendPathForAddress(source, participants, address, isMine) {
   return Object.keys(entryKeyChecks(source)).some(name => mine.has(name) || (isMine && !claimed.has(name)));
 }
 
+// The paths `address` can withdraw through (or start a proposal on), by name: the
+// ones whose checkSig names its key, plus, for the deployer, unclaimed ones.
+function myPathNamesFor(source, participants, address, isMine) {
+  const mine = new Set(spendPathsForAddress(source, participants, address));
+  const claimed = new Set(claimedSpendPaths(source, participants));
+  return Object.keys(entryKeyChecks(source)).filter(name => mine.has(name) || (isMine && !claimed.has(name)));
+}
+
 // SQL fragment: the caller owns the row, or is a participant who opened the link.
 const CONTRACT_ACCESS_SQL = `(u.wallet_address = ? OR EXISTS (
     SELECT 1 FROM contract_participants cp
@@ -1924,7 +1963,7 @@ app.get('/api/contracts', requireAuth, (req, res) => {
        c.network, c.created_at,
        c.abi, c.source_code,
        c.funding_txid, c.redeemed_at, c.funding_amount_sompi,
-       c.archived_at, c.redeem_script_hex, c.share_token,
+       c.archived_at, c.redeem_script_hex, c.share_token, c.covenant_id,
        (u.wallet_address = ?) AS is_mine
      FROM contracts c
      INNER JOIN users u ON u.id = c.user_id
@@ -1939,8 +1978,11 @@ app.get('/api/contracts', requireAuth, (req, res) => {
       // becomes the "representative". All rows contribute to funding history.
       const addressMap = new Map();
 
+      // A row born with a covenant ID is its own entry: the ID is its identity, and the
+      // same script can sit at an address other deploys already use (the first launchpad
+      // test compiled to HelloKaspa's exact script, so it shared HelloKaspa's address).
       for (const r of rows) {
-        const addr = r.contract_address;
+        const addr = r.covenant_id ? 'cov:' + r.covenant_id : r.contract_address;
         if (!addressMap.has(addr)) {
           addressMap.set(addr, {
             representative: r,
@@ -1985,12 +2027,14 @@ app.get('/api/contracts', requireAuth, (req, res) => {
         const allIds = group.allRows.map(r => r.id);
         const relation = group.allRows.some(r => !!r.is_mine) ? 'mine' : 'external';
         const shareToken = (group.allRows.find(r => r.share_token) || {}).share_token || null;
+        const covenantId = (group.allRows.find(r => r.covenant_id) || {}).covenant_id || null;
 
         contracts.push({
           id: rep.id,               // representative (earliest) row ID
           allIds: allIds,            // all DB row IDs for this address
           relation,                  // 'mine' (I deployed it) | 'external' (I'm a party, joined via link)
           shareToken,
+          covenantId,                // KIP-20 covenant ID when the coin was born with one (launchpad)
           contractName: rep.contract_name,
           contractAddress: rep.contract_address,
           scriptHash: rep.script_hash_hex,
@@ -2037,6 +2081,7 @@ app.get('/api/contracts', requireAuth, (req, res) => {
               c.myRoles = parties.filter(p => p.isYou).map(p => p.role);
               c.mySpendPaths = spendPathsForAddress(c.sourceCode, parties, me);
               c.hasSpendPath = hasSpendPathForAddress(c.sourceCode, parties, me, c.relation === 'mine');
+              c.myPaths = myPathNamesFor(c.sourceCode, parties, me, c.relation === 'mine');   // My Contracts order
             }
             cb();
           }
@@ -2062,7 +2107,7 @@ app.get('/api/contracts', requireAuth, (req, res) => {
             }
             for (const c of contracts) c.params = paramMap[c.id] || [];
           }
-          attachParties(() => res.json({ success: true, contracts }));
+          attachParties(() => attachStatus(db, contracts, me, () => res.json({ success: true, contracts, serverNow: Date.now() })));
         }
       );
     }
@@ -2236,7 +2281,7 @@ app.get('/api/share/:token', async (req, res) => {
 });
 
 // Drop what we cached about an address (called after we broadcast a spend of it)
-function forgetAddress(addr) { _snapCache.delete(addr); _balanceCache.delete(addr); }
+function forgetAddress(addr) { _snapCache.delete(addr); _balanceCache.delete(addr); scheduleStatusRefresh(addr); }
 
 // Balance + UTXO DAA range + virtual DAA score in one node round-trip, cached
 // like the balance (and it warms the balance cache). null on failure.
@@ -2293,6 +2338,9 @@ async function ledgerSpend({ addr, contractId, redeemHex, txJsonString, txid, en
   const db = app.get('db'); if (!db || !txid) return;
   try {
     const tx = JSON.parse(txJsonString);
+    // We broadcast it, so we know what moved: My Contracts shows it now, not at the next sweep
+    try { await statusAfterSpend(addr, redeemHex, tx, String(txid).toLowerCase()); }
+    catch (e) { console.warn('[Status] after-spend write failed:', e.message); }
     const self = p2shScriptHexOf(redeemHex);
     let inputSompi = 0n, payout = 0n, change = 0n;
     for (const i of tx.inputs || []) inputSompi += BigInt(i.utxo?.amount ?? i.utxo?.entry?.amount ?? 0);
@@ -2340,7 +2388,7 @@ async function ledgerSummary(db, addr) {
 async function liveChainSnapshot(addr) {
   const cached = _snapCache.get(addr);
   if (cached && (Date.now() - cached.at) < BALANCE_CACHE_TTL_MS) return cached.snap;
-  const { RpcClient } = require('kaspa');
+  const { RpcClient } = require(KASPA_SDK);
   const rpc = new RpcClient({ url: process.env.KASPA_NODE_RPC || 'ws://127.0.0.1:17110' });
   let timedOut = false;
   try {
@@ -2362,6 +2410,7 @@ async function liveChainSnapshot(addr) {
     _snapCache.set(addr, { snap, at: Date.now() });
     await rpc.disconnect();
     ledgerSeen(addr, entries, Number.isFinite(vd) ? vd : null).catch(() => {});   // provenance, off the response path
+    recordStatus(addr, entries, Number.isFinite(vd) ? vd : null).catch(() => {});  // My Contracts snapshot, same coins
     return snap;
   } catch (e) {
     if (!timedOut) { try { await rpc.disconnect(); } catch (_) {} }
@@ -2454,7 +2503,7 @@ app.post('/api/balances', requireAuth, async (req, res) => {
   if (uncached.length > 0) {
     let rpc;
     try {
-      const { RpcClient } = require('kaspa');
+      const { RpcClient } = require(KASPA_SDK);
       rpc = new RpcClient({ url: process.env.KASPA_NODE_RPC || 'ws://127.0.0.1:17110' });
       await rpc.connect();
 
@@ -2487,6 +2536,407 @@ app.post('/api/balances', requireAuth, async (req, res) => {
 });
 
 
+
+// ═══ CONTRACT_STATUS: the chain snapshot My Contracts paints from ═══════════
+// One row per covenant address. My Contracts answers from these rows with no RPC;
+// the node is asked in ONE batched getUtxosByAddresses, by three callers:
+//   1. the background watcher, every STATUS_WATCH_MS (env; default 2 min, 0 = off),
+//   2. POST /api/contracts/refresh, when someone opens My Contracts,
+//   3. events: confirm-funding, every Studio broadcast (forgetAddress), and the share
+//      page's own live read (recordStatus), so the row is usually fresh before a poll.
+// Chain is truth: the row is a dated copy of what the node said, never a DB sum. A row
+// that doesn't exist yet is "not checked yet", never 0.
+// statusEvents is where the event mail (build order item 2) will listen:
+//   'moved'  { address, before, after }  the coin set at the address changed
+//   'opened' { address, path, at }       a path's lock passed since the last check
+const EventEmitter = require('events');
+const statusEvents = new EventEmitter();
+const STATUS_WATCH_MS = (() => { const v = Number(process.env.STATUS_WATCH_MS); return Number.isFinite(v) && v >= 0 ? (v === 0 ? 0 : Math.max(15000, v)) : 120000; })();
+const STATUS_FRESH_MS = 15000;      // a row checked this recently is not asked again on refresh
+const MS_PER_DAA = 100;             // 10 DAA per second
+let _lastSweep = { at: null, ok: null, error: null, checked: 0 };
+
+async function ensureStatusTable() {
+  const db = app.get('db'); if (!db) throw new Error('no DB');
+  await db.promise().query(`
+    CREATE TABLE IF NOT EXISTS contract_status (
+      contract_address varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+      balance_sompi    bigint unsigned NOT NULL DEFAULT 0,
+      utxo_count       int NOT NULL DEFAULT 0,
+      newest_utxo_daa  bigint unsigned DEFAULT NULL,
+      virtual_daa      bigint unsigned DEFAULT NULL,
+      utxo_set_hash    char(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+      opens_at         json DEFAULT NULL,
+      moved_ms         bigint DEFAULT NULL,
+      checked_ms       bigint NOT NULL,
+      coins            json DEFAULT NULL,
+      pending_json     json DEFAULT NULL,
+      PRIMARY KEY (contract_address),
+      KEY idx_checked (checked_ms)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  // Tables created by the first drop lack these two
+  for (const col of ['coins json DEFAULT NULL', 'pending_json json DEFAULT NULL']) {
+    try { await db.promise().query(`ALTER TABLE contract_status ADD COLUMN ${col}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  }
+}
+
+// Locks per path, read once per address from the redeem script (it never changes)
+const _pathLockCache = new Map();
+function statusPathLocks(addr, m) {
+  if (_pathLockCache.has(addr)) return _pathLockCache.get(addr);
+  const fns = m.functions || [];
+  const out = fns.map((f, idx) => {
+    const tag = (f.dispatchTag || '').replace(/^0x/i, '').toLowerCase();
+    const sel = (!tag && fns.length > 1) ? idx : null;
+    let locks = { cltv: [], csv: [] };
+    try { locks = extractPathLocks(m.redeemHex, tag, sel); } catch (_) {}
+    return { name: f.name, locks };
+  });
+  _pathLockCache.set(addr, out);
+  return out;
+}
+
+// { path: { at: ms | null, kind: 'date' | 'daa' | 'relative', waitDays } } for paths with a lock.
+// Relative locks count from the newest coin (a full withdrawal needs every coin aged);
+// with no coins there is nothing to count yet: at = null.
+function opensAtFor(pathLocks, newestDaa, vd, nowMs) {
+  const out = {};
+  for (const p of pathLocks) {
+    const { cltv, csv } = p.locks;
+    if (!cltv.length && !csv.length) continue;
+    let at = 0, kind = null, unknown = false, waitDays = null;
+    for (const v of cltv) {
+      if (v >= LOCK_TIME_THRESHOLD) { at = Math.max(at, Number(v)); kind = kind || 'date'; }
+      else if (vd !== null) { at = Math.max(at, nowMs + (Number(v) - vd) * MS_PER_DAA); kind = kind || 'daa'; }
+      else unknown = true;
+    }
+    if (csv.length) {
+      const n = Number(csv.reduce((a, v) => v > a ? v : a, 0n));
+      waitDays = +(n / 864000).toFixed(2);
+      kind = 'relative';
+      if (newestDaa === null || vd === null) unknown = true;
+      else at = Math.max(at, nowMs + (newestDaa + n - vd) * MS_PER_DAA);
+    }
+    out[p.name] = { at: unknown ? null : Math.round(at), kind, waitDays };
+  }
+  return out;
+}
+
+async function statusMeta(db, addrs) {
+  const meta = new Map();
+  if (!addrs.length) return meta;
+  const [rows] = await db.promise().query(
+    `SELECT contract_address, abi, redeem_script_hex FROM contracts
+      WHERE contract_address IN (?) AND redeem_script_hex IS NOT NULL ORDER BY id ASC`, [addrs]);
+  for (const r of rows) if (!meta.has(r.contract_address))
+    meta.set(r.contract_address, { functions: parseAbiFunctions(r.abi), redeemHex: r.redeem_script_hex, spk: p2shScriptHexOf(r.redeem_script_hex) });
+  return meta;
+}
+
+function entryAddress(e) {
+  const a = e.address ?? (e.entry && e.entry.address);
+  if (!a) return null;
+  const s = typeof a === 'string' ? a : (typeof a.toString === 'function' ? a.toString() : String(a));
+  return s.startsWith(NETWORK_PREFIX + ':') ? s : null;
+}
+
+// Write one address's row from the coins the node returned; fire events on change
+async function applyStatus(db, addr, entries, vd, m, before, nowMs) {
+  let bal = 0n, newest = null;
+  const ops = [];
+  const coins = {};
+  for (const e of entries) {
+    const amt = BigInt(e.amount ?? (e.entry && e.entry.amount) ?? 0);
+    bal += amt;
+    const d = Number(e.blockDaaScore ?? (e.entry && e.entry.blockDaaScore) ?? NaN);
+    if (Number.isFinite(d)) newest = newest === null ? d : Math.max(newest, d);
+    const o = e.outpoint || (e.entry && e.entry.outpoint) || {};
+    const op = `${String(o.transactionId || '').toLowerCase()}:${Number(o.index ?? 0)}`;
+    ops.push(op);
+    coins[op] = [String(amt), Number.isFinite(d) ? d : null];
+  }
+  // A spend we broadcast ourselves is already in the row. While the node still lists the
+  // coins it spent (index not caught up yet), keep our row; after 2 min, trust the node.
+  const pend = before ? parseJsonCol(before.pending_json, null) : null;
+  if (pend && Array.isArray(pend.spent) && nowMs - Number(pend.at || 0) < 120000) {
+    const live = new Set(ops);
+    if (pend.spent.some(o => live.has(o))) return false;
+  }
+  const hash = coinSetHash(ops);
+  const opens = m ? opensAtFor(statusPathLocks(addr, m), newest, vd, nowMs) : null;
+  const moved = !!before && before.utxo_set_hash !== hash;
+  // First sight: the newest coin's age is the best "last moved" we have
+  const movedMs = moved ? nowMs
+    : (before ? (before.moved_ms !== null ? Number(before.moved_ms) : null)
+              : (newest !== null && vd !== null ? Math.round(nowMs - (vd - newest) * MS_PER_DAA) : null));
+  await db.promise().query(
+    `INSERT INTO contract_status (contract_address, balance_sompi, utxo_count, newest_utxo_daa, virtual_daa, utxo_set_hash, opens_at, moved_ms, checked_ms, coins, pending_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+     ON DUPLICATE KEY UPDATE balance_sompi = VALUES(balance_sompi), utxo_count = VALUES(utxo_count), newest_utxo_daa = VALUES(newest_utxo_daa),
+       virtual_daa = VALUES(virtual_daa), utxo_set_hash = VALUES(utxo_set_hash), opens_at = VALUES(opens_at),
+       moved_ms = VALUES(moved_ms), checked_ms = VALUES(checked_ms), coins = VALUES(coins), pending_json = NULL`,
+    [addr, String(bal), entries.length, newest, vd, hash, opens ? JSON.stringify(opens) : null, movedMs, nowMs, JSON.stringify(coins)]);
+  const after = { balanceSompi: Number(bal), utxoCount: entries.length, newestUtxoDaa: newest, opensAt: opens, movedMs, checkedMs: nowMs };
+  if (moved) {
+    statusEvents.emit('moved', { address: addr, before: statusView(before), after });
+    ledgerSeen(addr, entries, vd).catch(() => {});
+  } else if (!before && entries.length) {
+    ledgerSeen(addr, entries, vd).catch(() => {});
+  }
+  if (before && opens) {
+    const prevCheck = Number(before.checked_ms);
+    for (const [path, o] of Object.entries(opens))
+      if (o.at !== null && o.at > prevCheck && o.at <= nowMs) statusEvents.emit('opened', { address: addr, path, at: o.at });
+  }
+  return moved;
+}
+
+function coinSetHash(ops) {
+  return ops.length ? crypto.createHash('sha256').update([...ops].sort().join(',')).digest('hex') : '';
+}
+
+// The row as it is after a spend the Studio just broadcast, worked out from the tx:
+// its inputs leave, its outputs to this covenant (change) arrive. With the coin list
+// from the last check this is exact, so the node's confirmation later matches it and
+// fires no second 'moved'. The row is marked pending until the node agrees.
+function statusAfterSpend(addr, redeemHex, tx, txid) {
+  if (typeof addr !== 'string' || !addr.startsWith(NETWORK_PREFIX + ':')) return Promise.resolve();
+  return serialStatus(async () => {
+    const db = app.get('db'); if (!db) return;
+    const [prev] = await db.promise().query(`SELECT * FROM contract_status WHERE contract_address = ?`, [addr]);
+    const before = prev[0] || null;
+    const nowMs = Date.now();
+    const self = p2shScriptHexOf(redeemHex);
+    const spent = [];
+    let inSum = 0n;
+    for (const i of tx.inputs || []) {
+      const t = String(i.transactionId || (i.previousOutpoint && i.previousOutpoint.transactionId) || '').toLowerCase();
+      const idx = Number(i.index ?? (i.previousOutpoint && i.previousOutpoint.index) ?? 0);
+      if (t) spent.push(`${t}:${idx}`);
+      inSum += BigInt((i.utxo && (i.utxo.amount ?? (i.utxo.entry && i.utxo.entry.amount))) ?? 0);
+    }
+    const arrivals = [];
+    (tx.outputs || []).forEach((o, idx) => {
+      const toSelf = self ? spkHexOf(o).endsWith(self) : idx > 0;
+      if (toSelf) arrivals.push([`${txid}:${idx}`, BigInt(o.value ?? o.amount ?? 0)]);
+    });
+    // Virtual DAA now, estimated from the last check (10 per second)
+    const estVd = before && before.virtual_daa !== null
+      ? Number(before.virtual_daa) + Math.floor((nowMs - Number(before.checked_ms)) / MS_PER_DAA) : null;
+
+    let coins = before ? parseJsonCol(before.coins, null) : null;
+    let bal, count, newest, hash;
+    if (coins && typeof coins === 'object') {
+      for (const op of spent) delete coins[op];
+      for (const [op, v] of arrivals) coins[op] = [String(v), estVd];
+      bal = 0n; newest = null;
+      for (const [amt, d] of Object.values(coins)) { bal += BigInt(amt); if (d !== null) newest = newest === null ? d : Math.max(newest, d); }
+      count = Object.keys(coins).length;
+      hash = coinSetHash(Object.keys(coins));
+    } else {
+      // No coin list (never checked, or a row from before the coins column): arithmetic
+      const prevBal = before ? BigInt(before.balance_sompi) : inSum;
+      const change = arrivals.reduce((a, [, v]) => a + v, 0n);
+      bal = prevBal - inSum + change; if (bal < 0n) bal = 0n;
+      count = Math.max(0, (before ? Number(before.utxo_count) : spent.length) - spent.length + arrivals.length);
+      newest = arrivals.length ? estVd : (before && before.newest_utxo_daa !== null ? Number(before.newest_utxo_daa) : null);
+      hash = '';
+      coins = null;
+    }
+    // A chained merge → pull lands two broadcasts back to back: keep both sets of spent
+    // coins in the guard, so the merge's old inputs can't bring the old balance back
+    const prevPend = before ? parseJsonCol(before.pending_json, null) : null;
+    const pendingSpent = [...new Set([
+      ...((prevPend && Array.isArray(prevPend.spent) && nowMs - Number(prevPend.at || 0) < 120000) ? prevPend.spent : []),
+      ...spent])];
+    const meta = await statusMeta(db, [addr]);
+    const m = meta.get(addr);
+    const opens = m ? opensAtFor(statusPathLocks(addr, m), count ? newest : null, estVd, nowMs) : null;
+    await db.promise().query(
+      `INSERT INTO contract_status (contract_address, balance_sompi, utxo_count, newest_utxo_daa, virtual_daa, utxo_set_hash, opens_at, moved_ms, checked_ms, coins, pending_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE balance_sompi = VALUES(balance_sompi), utxo_count = VALUES(utxo_count), newest_utxo_daa = VALUES(newest_utxo_daa),
+         virtual_daa = VALUES(virtual_daa), utxo_set_hash = VALUES(utxo_set_hash), opens_at = VALUES(opens_at),
+         moved_ms = VALUES(moved_ms), checked_ms = VALUES(checked_ms), coins = VALUES(coins), pending_json = VALUES(pending_json)`,
+      [addr, String(bal), count, newest, estVd, hash, opens ? JSON.stringify(opens) : null, nowMs, nowMs,
+       coins ? JSON.stringify(coins) : null, JSON.stringify({ txid, spent: pendingSpent, at: nowMs })]);
+    statusEvents.emit('moved', { address: addr, txid, before: statusView(before),
+      after: { balanceSompi: Number(bal), utxoCount: count, newestUtxoDaa: newest, opensAt: opens, movedMs: nowMs, checkedMs: nowMs } });
+  });
+}
+
+// Serial: one node conversation at a time, so before/after comparisons don't race
+let _statusChain = Promise.resolve();
+function serialStatus(fn) { const p = _statusChain.then(fn); _statusChain = p.catch(() => {}); return p; }
+
+// Ask the node about many addresses at once. maxAgeMs skips rows checked more recently.
+// Returns { checked, moved: [addr], error }
+function refreshStatus(addresses, opts = {}) {
+  return serialStatus(async () => {
+    const db = app.get('db');
+    const addrs = [...new Set((addresses || []).filter(a => typeof a === 'string' && a.startsWith(NETWORK_PREFIX + ':')))];
+    if (!db || !addrs.length) return { checked: 0, moved: [], error: null };
+    const [prev] = await db.promise().query(`SELECT * FROM contract_status WHERE contract_address IN (?)`, [addrs]);
+    const before = new Map(prev.map(r => [r.contract_address, r]));
+    const nowMs = Date.now();
+    const due = opts.maxAgeMs ? addrs.filter(a => !before.has(a) || nowMs - Number(before.get(a).checked_ms) >= opts.maxAgeMs) : addrs;
+    if (!due.length) return { checked: 0, moved: [], error: null };
+    const meta = await statusMeta(db, due);
+    const spkToAddr = new Map();
+    for (const [a, m] of meta) if (m.spk) spkToAddr.set(m.spk, a);
+
+    const { RpcClient } = require(KASPA_SDK);
+    const rpc = new RpcClient({ url: process.env.KASPA_NODE_RPC || 'ws://127.0.0.1:17110' });
+    let timedOut = false;
+    const byAddr = new Map(due.map(a => [a, []]));
+    let vd = null;
+    try {
+      const connectP = rpc.connect(); connectP.catch(() => {});
+      await Promise.race([connectP, new Promise((_, rej) => setTimeout(() => { timedOut = true; rej(new Error('node connect timeout (8s)')); }, 8000))]);
+      const dag = await rpc.getBlockDagInfo();
+      const v = Number((dag && (dag.virtualDaaScore ?? dag.virtual_daa_score)) ?? NaN);
+      vd = Number.isFinite(v) ? v : null;
+      for (let i = 0; i < due.length; i += 100) {
+        const { entries } = await rpc.getUtxosByAddresses({ addresses: due.slice(i, i + 100) });
+        for (const e of entries || []) {
+          let a = entryAddress(e);
+          if (!a || !byAddr.has(a)) {
+            const spk = spkHexOf(e) || spkHexOf(e.entry || {});
+            a = null;
+            for (const [s, addr] of spkToAddr) if (spk && spk.endsWith(s)) { a = addr; break; }
+          }
+          if (a && byAddr.has(a)) byAddr.get(a).push(e);
+        }
+      }
+      await rpc.disconnect();
+    } catch (e) {
+      if (!timedOut) { try { await rpc.disconnect(); } catch (_) {} }
+      const msg = typeof e === 'string' ? e : (e && e.message) || 'node error';
+      return { checked: 0, moved: [], error: msg };      // rows keep their last known values and dates
+    }
+    const moved = [];
+    for (const a of due) {
+      try { if (await applyStatus(db, a, byAddr.get(a), vd, meta.get(a), before.get(a), nowMs)) moved.push(a); }
+      catch (e) { console.warn(`[Status] write failed for ${a}:`, e.message); }
+    }
+    return { checked: due.length, moved, error: null };
+  });
+}
+
+// The share page already read the coins: file them without asking the node again
+function recordStatus(addr, entries, vd) {
+  if (typeof addr !== 'string' || !addr.startsWith(NETWORK_PREFIX + ':')) return Promise.resolve(false);
+  return serialStatus(async () => {
+    const db = app.get('db'); if (!db) return false;
+    const [prev] = await db.promise().query(`SELECT * FROM contract_status WHERE contract_address = ?`, [addr]);
+    const meta = await statusMeta(db, [addr]);
+    return applyStatus(db, addr, entries || [], vd, meta.get(addr), prev[0], Date.now());
+  });
+}
+
+// After an event (funding confirmed, a spend broadcast): check now-ish and once more,
+// since the coins land a few seconds after the node accepts the tx
+const _statusPending = new Set();
+function scheduleStatusRefresh(addr) {
+  if (typeof addr !== 'string' || _statusPending.has(addr)) return;
+  _statusPending.add(addr);
+  setTimeout(() => { refreshStatus([addr]).catch(() => {}); }, 4000);
+  setTimeout(() => { _statusPending.delete(addr); refreshStatus([addr]).catch(() => {}); }, 20000);
+}
+
+function statusView(r) {
+  if (!r) return null;
+  let opens = r.opens_at;
+  if (typeof opens === 'string') { try { opens = JSON.parse(opens); } catch (_) { opens = null; } }
+  return {
+    balanceSompi: Number(r.balance_sompi),
+    utxoCount: Number(r.utxo_count),
+    newestUtxoDaa: r.newest_utxo_daa !== null ? Number(r.newest_utxo_daa) : null,
+    opensAt: opens || null,
+    movedAt: r.moved_ms !== null ? Number(r.moved_ms) : null,
+    checkedAt: Number(r.checked_ms)
+  };
+}
+
+// Open proposals at these addresses, as the viewer sees them (DB only)
+function proposalBrief(row, me) {
+  const signers = parseJsonCol(row.signers, []);
+  const sigs = parseJsonCol(row.signatures, {});
+  const signed = signers.filter(x => sigs[x.address]);
+  const meSigner = !!me && signers.some(x => x.address === me);
+  return {
+    id: row.id, entry: row.entry, createdAt: row.created_at,
+    signedCount: signed.length, requiredCount: signers.length,
+    waitingOn: signers.filter(x => !sigs[x.address]).map(x => x.role),
+    you: !meSigner ? null : (sigs[me] ? 'signed' : 'sign')
+  };
+}
+
+async function statusRowsFor(db, addrs, me) {
+  const statuses = {}, proposals = {};
+  if (!addrs.length) return { statuses, proposals };
+  const [srows] = await db.promise().query(`SELECT * FROM contract_status WHERE contract_address IN (?)`, [addrs]);
+  for (const r of srows) statuses[r.contract_address] = statusView(r);
+  const [prows] = await db.promise().query(
+    `SELECT id, contract_address, entry, signers, signatures, created_at FROM spend_proposals
+      WHERE status = 'open' AND contract_address IN (?) ORDER BY created_at ASC`, [addrs]);
+  for (const r of prows) (proposals[r.contract_address] = proposals[r.contract_address] || []).push(proposalBrief(r, me));
+  return { statuses, proposals };
+}
+
+// GET /api/contracts: attach the snapshot and open proposals to each row
+function attachStatus(db, contracts, me, cb) {
+  const addrs = [...new Set(contracts.map(c => c.contractAddress))];
+  statusRowsFor(db, addrs, me).then(({ statuses, proposals }) => {
+    for (const c of contracts) {
+      c.status = statuses[c.contractAddress] || null;            // null = not checked yet
+      c.openProposals = proposals[c.contractAddress] || [];
+    }
+    cb();
+  }).catch(e => { console.warn('[Status] attach failed:', e.message); cb(); });
+}
+
+// POST /api/contracts/refresh: one batched node call for every address the viewer can
+// see, then the snapshot for all of them; `moved` names the rows whose coins changed
+app.post('/api/contracts/refresh', requireAuth, async (req, res) => {
+  const db = req.app.get('db');
+  if (!db) return res.json({ success: false, error: 'DB unavailable' });
+  const me = req.walletAddress;
+  try {
+    const [rows] = await db.promise().query(
+      `SELECT DISTINCT c.contract_address FROM contracts c INNER JOIN users u ON u.id = c.user_id WHERE ${CONTRACT_ACCESS_SQL}`, [me, me]);
+    const addrs = rows.map(r => r.contract_address);
+    const r = await refreshStatus(addrs, { maxAgeMs: STATUS_FRESH_MS });
+    const { statuses, proposals } = await statusRowsFor(db, addrs, me);
+    res.json({ success: true, statuses, proposals, moved: r.moved, checked: r.checked, nodeError: r.error,
+               lastSweep: _lastSweep, serverNow: Date.now() });
+  } catch (e) {
+    console.error('[Status] refresh error:', e.message);
+    res.json({ success: false, error: 'Could not refresh' });
+  }
+});
+
+// Background watcher: every STATUS_WATCH_MS, every unarchived covenant on this network,
+// in one batched call. setTimeout chain, so a slow node never stacks sweeps.
+async function statusSweep() {
+  const db = app.get('db'); if (!db) return;
+  const [rows] = await db.promise().query(
+    `SELECT DISTINCT contract_address FROM contracts WHERE archived_at IS NULL AND network = ?`, [NETWORK_PREFIX]);
+  const r = await refreshStatus(rows.map(x => x.contract_address), { maxAgeMs: Math.max(5000, Math.floor(STATUS_WATCH_MS / 2)) });
+  _lastSweep = { at: Date.now(), ok: !r.error, error: r.error, checked: r.checked };
+  if (r.error) console.warn(`[Status] sweep: node unreachable (${r.error}); rows keep their last check`);
+  else if (r.moved.length) console.log(`[Status] sweep: ${r.checked} checked, moved: ${r.moved.join(', ')}`);
+}
+function startStatusWatcher() {
+  if (!STATUS_WATCH_MS) { console.log('[Status] background watcher off (STATUS_WATCH_MS=0)'); return; }
+  const tick = async () => {
+    try { await statusSweep(); } catch (e) { console.warn('[Status] sweep failed:', e.message); }
+    setTimeout(tick, STATUS_WATCH_MS).unref();
+  };
+  setTimeout(tick, 20000).unref();
+  console.log(`[Status] background watcher every ${Math.round(STATUS_WATCH_MS / 1000)}s`);
+}
 
 // ─── Archive / unarchive (applies to every row sharing the address) ────────
 
@@ -2742,7 +3192,7 @@ app.post('/api/contracts/:contractId/confirm-funding', requireAuth, async (req, 
             const contractAddress = rows[0].contract_address;
 
             let match = null;
-            const { RpcClient } = require('kaspa');
+            const { RpcClient } = require(KASPA_SDK);
             const rpc = new RpcClient({ url: process.env.KASPA_NODE_RPC || 'ws://127.0.0.1:17110' });
             let timedOut = false;
             try {
@@ -2792,6 +3242,7 @@ app.post('/api/contracts/:contractId/confirm-funding', requireAuth, async (req, 
                         [txId, contractAddress], () => {}
                     );
                     console.log(`[Funding] ✅ Contract ${contractId} funded: ${amountSompi} sompi, tx ${txId.slice(0, 16)}…`);
+                    scheduleStatusRefresh(contractAddress);
                     return res.json({
                         success: true, txId, outputIndex,
                         amountSompi: String(amountSompi),
@@ -3060,7 +3511,7 @@ async function prepareSpend({ c, fn, functions, userArgs, destination, amount, c
                     + (selector !== null ? pushDataHex(selector ? Buffer.from([selector]) : Buffer.alloc(0)) : '')
                     + pushDataHex(Buffer.from(redeem, 'hex'));
 
-    const { RpcClient, createTransactions, kaspaToSompi } = require('kaspa');
+    const { RpcClient, createTransaction, calculateTransactionMass, updateTransactionMass, kaspaToSompi } = require(KASPA_SDK);
     const rpc = new RpcClient({ url: process.env.KASPA_NODE_RPC || 'ws://127.0.0.1:17110' });
     let timedOut = false, handedOff = false;
     try {
@@ -3118,7 +3569,7 @@ async function prepareSpend({ c, fn, functions, userArgs, destination, amount, c
                     const preTx = JSON.parse(pre.txJsonString);
                     let mergeId = String(preTx.id || '').toLowerCase();
                     if (!/^[0-9a-f]{64}$/.test(mergeId)) {
-                        try { const { Transaction } = require('kaspa'); mergeId = String(Transaction.deserializeFromSafeJSON(pre.txJsonString).id).toLowerCase(); } catch (_) {}
+                        try { const { Transaction } = require(KASPA_SDK); mergeId = String(Transaction.deserializeFromSafeJSON(pre.txJsonString).id).toLowerCase(); } catch (_) {}
                     }
                     if (!/^[0-9a-f]{64}$/.test(mergeId)) throw fail('Could not read the merge transaction id before signing; not chaining');
                     const synth = syntheticCoin(byAmountDesc[0], c, mergeId, BigInt(preTx.outputs[0].value ?? preTx.outputs[0].amount ?? 0), vdaa);
@@ -3189,49 +3640,42 @@ async function prepareSpend({ c, fn, functions, userArgs, destination, amount, c
         };
 
         // Fee. The node prices by mass: compute mass (bytes + 10/byte of output script +
-        // 1000 per signature op; the SDK estimates with an empty sigScript and one sig op)
+        // 1000 per signature op; estimated here with an empty sigScript and one sig op)
         // or storage mass (KIP-9: a small output made from a large input weighs a lot),
         // whichever is greater. The Studio pays at least the node's floor for that.
-        //   Drain (one output): ask the SDK for payout = inputs - fee; the sliver it
-        //   doesn't need as fee is absorbed, as it always was.
-        //   Partial (change home): ask the SDK for ONE payment output and give it the
-        //   covenant's own address as changeAddress; the SDK sizes the change itself
-        //   (an explicit second output plus the SDK's own leftover made a third, tiny
-        //   output whose storage mass the SDK refused). What the node wants beyond the
-        //   SDK's own fee goes in as priorityFee. Iterate until the fee covers the mass.
+        // sdk-v2-builder-2026-09-30: the transaction is built from OUR coins and OUR
+        // outputs with the SDK's low-level createTransaction (no automatic change output,
+        // coin data attached to each input for the wallet's sighash). The Generator
+        // (createTransactions) is no longer used: v2.1.0 turns a drain's fee leftover
+        // into a sliver of change and refuses its storage mass, and 0.13 made a third
+        // tiny output when handed two. Here fee = inputs - payout - change, exactly as
+        // decide() set it; the loop below raises it until it covers the mass.
         const sigScriptBytes = layout.reduce((n, x) => n + (x.kind === 'sig' ? 66 : x.hex.length / 2), 0) + suffixHex.length / 2 + 3;
-        const build = async (d, priorityFee) => {
-            const { transactions } = await createTransactions({
-                entries:       coins,
-                outputs:       [{ address: destination, amount: d.payout }],
-                changeAddress: c.contract_address,
-                priorityFee,
-                networkId:     IS_MAINNET ? 'mainnet' : 'testnet-12',
-            });
-            if (!transactions || transactions.length !== 1) {
-                throw fail((transactions && transactions.length > 1)
-                    ? 'The SDK split this sweep into multiple transactions — withdraw in smaller batches'
-                    : 'Failed to build the spend transaction');
-            }
-            const p = transactions[0];
-            let json = null;
-            if (typeof p.serializeToSafeJSON === 'function') json = p.serializeToSafeJSON();
-            else if (p.transaction && typeof p.transaction.serializeToSafeJSON === 'function') json = p.transaction.serializeToSafeJSON();
-            if (!json) throw fail('SDK cannot serialize the transaction (serializeToSafeJSON missing)');
+        const NET_ID = IS_MAINNET ? 'mainnet' : 'testnet-12';
+        const build = async (d) => {
+            const outputs = [{ address: destination, amount: d.payout }];
+            if (d.change > 0n) outputs.push({ address: c.contract_address, amount: d.change });
+            const tx = createTransaction(coins, outputs, 0n, undefined, 1);
+            const mass = Number(calculateTransactionMass(NET_ID, tx, 1));
+            // Commit the mass field the way the Generator did (v2.1.0 names it storageMass)
+            if (typeof updateTransactionMass === 'function') { try { updateTransactionMass(NET_ID, tx, 1); } catch (_) {} }
+            if (typeof tx.serializeToSafeJSON !== 'function') throw fail('SDK cannot serialize the transaction (serializeToSafeJSON missing)');
+            const json = tx.serializeToSafeJSON();
             const t = JSON.parse(json);
             const outs = (t.outputs || []).map(o => BigInt(o.value ?? o.amount ?? 0));
             const expected = d.change > 0n ? 2 : 1;
             if (outs.length !== expected) throw fail(`The SDK built ${outs.length} output${outs.length === 1 ? '' : 's'} where ${expected} ${expected === 1 ? 'was' : 'were'} expected; not signing that`);
             if (outs[0] !== d.payout) throw fail(`The SDK changed the payout (${_kasTxt(outs[0])} KAS for ${_kasTxt(d.payout)} KAS asked); not signing that`);
-            return { json, mass: Number(t.mass || 0), payout: outs[0], change: outs[1] ?? 0n, fee: totalSompi - outs.reduce((a, v) => a + v, 0n) };
+            if (expected === 2 && outs[1] !== d.change) throw fail(`The SDK changed the change (${_kasTxt(outs[1])} KAS for ${_kasTxt(d.change)} KAS); not signing that`);
+            if ((t.inputs || []).length !== coins.length || (t.inputs || []).some(i => !i.utxo)) throw fail('The SDK built inputs without their coin data; not signing that');
+            return { json, mass, payout: outs[0], change: outs[1] ?? 0n, fee: totalSompi - outs.reduce((a, v) => a + v, 0n) };
         };
         let feeSompi = kaspaToSompi('0.002') * BigInt(coins.length);
-        let priority = 0n;
         let txJsonString, decided, built;
         try {
             for (let round = 0; ; round++) {
                 decided = decide(feeSompi);
-                built = await build(decided, decided.change > 0n ? priority : 0n);
+                built = await build(decided);
                 const computeMass = built.mass + coins.length * (sigScriptBytes + (sigOps - 1) * 1000) + 64;
                 const storageMass = storageMassGrams(coins.map(amtOf), built.change > 0n ? [built.payout, built.change] : [built.payout]);
                 const needed = BigInt(Math.ceil(Math.max(computeMass, storageMass) * MIN_FEE_SOMPI_PER_GRAM));
@@ -3244,13 +3688,12 @@ async function prepareSpend({ c, fn, functions, userArgs, destination, amount, c
                                                   { badAmount: true, feeBudget: true });
                     if (!(legacy || amount.all)) throw fail(`${fn.name} allows at most ${_kasTxt(feeBudget)} KAS in network fees per withdrawal; taking ${_kasTxt(decided.payout)} KAS would leave a coin so small that the fee comes to ${_kasTxt(needed)} KAS. Ask for up to ${_kasTxt(ceiling)} KAS, or take all.`,
                                                              { badAmount: true, feeBudget: true, maxSompi: String(ceiling), maxKas: sompiToKasText(ceiling) });
-                    payoutCeiling = ceiling; priority = 0n; feeSompi = kaspaToSompi('0.002') * BigInt(coins.length);
+                    payoutCeiling = ceiling; feeSompi = kaspaToSompi('0.002') * BigInt(coins.length);
                     if (round >= 6) throw fail('Could not fit the withdrawal under the covenant\'s fee budget; take all instead');
                     continue;
                 }
                 if (built.fee >= needed) break;
                 if (round >= 6) throw fail(`Could not settle the network fee (paying ${_kasTxt(built.fee)} KAS, the node wants ${_kasTxt(needed)} KAS)`);
-                if (decided.change > 0n) priority += needed - built.fee;
                 feeSompi = needed;
             }
             if (built.change > 0n && feeBudget !== null && built.fee > feeBudget) throw fail(`The network fee settled at ${_kasTxt(built.fee)} KAS, above the ${_kasTxt(feeBudget)} KAS ${fn.name} allows; take all, or a smaller amount`, { badAmount: true, feeBudget: true });
@@ -3944,7 +4387,7 @@ async function assembleAndBroadcast(db, row) {
         const sigAt = pre.layout.findIndex(x => x.kind === 'sig');
         const prefix = pre.layout.slice(0, sigAt).map(x => x.hex).join(''), suffix = pre.layout.slice(sigAt + 1).map(x => x.hex).join('') + pre.suffixHex;
         ptx.inputs.forEach((inp, i) => { inp.signatureScript = prefix + (psigs[i] || '') + suffix; });
-        const { Transaction: T, RpcClient: R } = require('kaspa');
+        const { Transaction: T, RpcClient: R } = require(KASPA_SDK);
         let pObj;
         try { pObj = T.deserializeFromSafeJSON(JSON.stringify(ptx)); }
         catch (e) { return { success: false, error: 'Assembled merge rejected by the SDK: ' + (e?.message || e) }; }
@@ -3991,7 +4434,7 @@ async function assembleAndBroadcast(db, row) {
         }
         inp.signatureScript = js + row.suffix_hex;
     });
-    const { Transaction, RpcClient } = require('kaspa');
+    const { Transaction, RpcClient } = require(KASPA_SDK);
     let txObj;
     try { txObj = Transaction.deserializeFromSafeJSON(JSON.stringify(tx)); }
     catch (e) { return { success: false, error: 'Assembled transaction rejected by the SDK: ' + (e?.message || e) }; }
@@ -4353,7 +4796,7 @@ app.post('/api/contracts/:contractId/broadcast', requireAuth, async (req, res) =
         return res.json({ success: false, error: 'DB error: ' + e.message });
     }
 
-    const { Transaction, RpcClient } = require('kaspa');
+    const { Transaction, RpcClient } = require(KASPA_SDK);
     let tx;
     try {
         tx = Transaction.deserializeFromSafeJSON(txJsonString);
@@ -4375,7 +4818,7 @@ app.post('/api/contracts/:contractId/broadcast', requireAuth, async (req, res) =
             const spent = (JSON.parse(txJsonString).inputs || []).map(i => `${String(i.transactionId || '').toLowerCase()}:${Number(i.index ?? 0)}`);
             await overtakeOthers(db, rows[0].contract_address, spent, null, `withdraw:${req.walletAddress}`);
         } catch (_) {}
-        ledgerSpend({ addr: rows[0].contract_address, contractId: rows[0].id, redeemHex: rows[0].redeem_script_hex, txJsonString, txid: txId,
+        await ledgerSpend({ addr: rows[0].contract_address, contractId: rows[0].id, redeemHex: rows[0].redeem_script_hex, txJsonString, txid: txId,
                       entry: typeof req.body?.entry === 'string' ? req.body.entry.slice(0, 64) : null, by: req.walletAddress }).catch(() => {});
         forgetAddress(rows[0].contract_address);
         console.log(`[Broadcast] ✅ contract ${contractId} spend accepted by node: ${txId}`);
@@ -4385,6 +4828,172 @@ app.post('/api/contracts/:contractId/broadcast', requireAuth, async (req, res) =
         const msg = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
         console.error(`[Broadcast] node rejected spend for contract ${contractId}:`, msg);
         console.error('[Broadcast] tx JSON:', txJsonString.slice(0, 4000));
+        return res.json({ success: false, stage: 'submit', error: 'Node rejected the transaction: ' + msg });
+    }
+});
+
+// ══ Covenant genesis (KIP-20) — spike ═════════════════════════════
+// Funds an unfunded contract with a covenant-BOUND output instead of a plain send, so the
+// coin carries a KIP-20 covenant ID from birth. Two steps around the wallet:
+//   POST /api/genesis/build      { token, amountKas }  → unsigned v1 tx (the caller's own
+//        coins in; out0 = the contract's P2SH, bound to authorizing input 0; out1 = change)
+//   POST /api/genesis/broadcast  { token, txJsonString } → checks the wallet left the binding
+//        intact (same covenant ID as built), submits, records contracts.covenant_id
+// Then the page calls the existing confirm-funding with the txid. Requires migration
+// genesis-2026-10-02.sql (contracts.covenant_id). The inputs are plain P2PK coins of the
+// signed-in wallet, so any wallet signs them the ordinary way; the only new thing is out0.
+const GENESIS_MIN_SOMPI = 100000000n;      // 1 KAS: keeps out0's storage mass (and fee) small
+const GENESIS_MAX_INPUTS = 20;
+// v1 inputs commit a compute budget instead of a sig-op count (the node rejects sigOpCount != 0
+// on v1). 1 unit = 10,000 script units = 100 grams; each input gets 9,999 units free; one Schnorr
+// check costs ~100,000. 11 covers a P2PK signature with margin (1,100 grams per input).
+const GENESIS_COMPUTE_BUDGET = 11;
+
+async function genesisContractByToken(db, token, wallet) {
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{6,64}$/.test(token)) return null;
+    const [rows] = await db.promise().query(
+        `SELECT c.id, c.contract_address, c.funding_txid, c.share_token FROM contracts c JOIN users u ON c.user_id = u.id
+          WHERE c.share_token = ? AND ${CONTRACT_ACCESS_SQL} ORDER BY c.id ASC LIMIT 1`,
+        [token, wallet, wallet]);
+    return rows[0] || null;
+}
+
+async function genesisRpc() {
+    const { RpcClient } = require(KASPA_SDK);
+    const rpc = new RpcClient({ url: process.env.KASPA_NODE_RPC || 'ws://127.0.0.1:17110' });
+    let timedOut = false;
+    const connectP = rpc.connect(); connectP.catch(() => {});
+    try {
+        await Promise.race([connectP, new Promise((_, rej) => setTimeout(() => { timedOut = true; rej('RPC connect timeout (10s)'); }, 10000))]);
+    } catch (e) { if (!timedOut) { try { await rpc.disconnect(); } catch (_) {} } throw e; }
+    return rpc;
+}
+
+// The covenant ID bound to out0 of a tx JSON, or null when out0 carries no binding.
+function genesisBindingOf(txJsonString) {
+    const t = JSON.parse(txJsonString);
+    const o = (t.outputs || [])[0] || {};
+    const cov = o.covenant || null;
+    if (!cov) return null;
+    return { covenantId: String(cov.covenantId || cov.covenant_id || '').toLowerCase(), authorizingInput: Number(cov.authorizingInput ?? cov.authorizing_input ?? -1) };
+}
+
+app.post('/api/genesis/build', requireAuth, async (req, res) => {
+    const { token, amountKas } = req.body || {};
+    const db = req.app.get('db') || req.app.locals.db;
+    let c;
+    try { c = await genesisContractByToken(db, token, req.walletAddress); }
+    catch (e) { return res.json({ success: false, error: 'DB error: ' + e.message }); }
+    if (!c) return res.status(404).json({ success: false, error: 'Contract not found or not yours' });
+    if (c.funding_txid) return res.json({ success: false, error: 'This contract is already funded; genesis needs a fresh, unfunded one' });
+
+    let amount;
+    try { amount = kasToSompiBig(String(amountKas ?? "")); } catch (_) { amount = null; }
+    if (amount === null || amount < GENESIS_MIN_SOMPI) return res.json({ success: false, error: 'Amount must be at least 1 KAS' });
+
+    const { createTransaction, calculateTransactionMass, updateTransactionMass, Transaction } = require(KASPA_SDK);
+    const NET_ID = IS_MAINNET ? 'mainnet' : 'testnet-12';
+    let rpc;
+    try { rpc = await genesisRpc(); }
+    catch (e) { return res.json({ success: false, error: 'Node unreachable: ' + (typeof e === 'string' ? e : e.message) }); }
+    try {
+        const { entries } = await rpc.getUtxosByAddresses({ addresses: [req.walletAddress] });
+        await rpc.disconnect();
+        const amtOf = e => BigInt(e.amount ?? e.entry?.amount ?? 0);
+        const coins = (entries || []).slice().sort((a, b) => (amtOf(b) > amtOf(a) ? 1 : amtOf(b) < amtOf(a) ? -1 : 0));
+        // Largest first until amount + change floor + a generous fee margin is covered.
+        const want = amount + MIN_CHANGE_SOMPI + 10000000n;
+        const picked = []; let total = 0n;
+        for (const e of coins) { if (total >= want || picked.length >= GENESIS_MAX_INPUTS) break; picked.push(e); total += amtOf(e); }
+        if (total < want) return res.json({ success: false, error: `Your wallet needs about ${sompiToKasText(want)} KAS in at most ${GENESIS_MAX_INPUTS} coins for this (it has ${sompiToKasText(coins.reduce((a, e) => a + amtOf(e), 0n))} KAS)` });
+
+        const build = (change) => {
+            const tx0 = createTransaction(picked, [{ address: c.contract_address, amount }, { address: req.walletAddress, amount: change }], 0n, undefined, 1);
+            tx0.version = 1;                                                        // covenant bindings ride on v1 transactions
+            tx0.populateGenesisCovenants([{ authorizingInput: 0, outputs: [0] }]);  // covenant ID from input 0's outpoint + out0
+            // createTransaction writes v0-style inputs (sigOpCount); v1 wants computeBudget instead
+            const raw = JSON.parse(tx0.serializeToSafeJSON());
+            for (const i of raw.inputs || []) { i.sigOpCount = 0; i.computeBudget = GENESIS_COMPUTE_BUDGET; }
+            const tx = Transaction.deserializeFromSafeJSON(JSON.stringify(raw));
+            const mass = Math.max(Number(calculateTransactionMass(NET_ID, tx, 1)), picked.length * GENESIS_COMPUTE_BUDGET * 100);
+            if (typeof updateTransactionMass === 'function') { try { updateTransactionMass(NET_ID, tx, 1); } catch (_) {} }
+            return { tx, mass, json: tx.serializeToSafeJSON() };
+        };
+        let fee = 2000000n, built;                                               // start at 0.02 KAS, settle below
+        for (let round = 0; ; round++) {
+            built = build(total - amount - fee);
+            const computeMass = built.mass + picked.length * 66 + 64;              // + P2PK signature scripts
+            const storageMass = storageMassGrams(picked.map(amtOf), [amount, total - amount - fee]);
+            const needed = BigInt(Math.ceil(Math.max(computeMass, storageMass) * MIN_FEE_SOMPI_PER_GRAM));
+            if (fee >= needed) break;
+            if (round >= 6) throw new Error(`Could not settle the network fee (node wants ${sompiToKasText(needed)} KAS)`);
+            fee = needed;
+        }
+        const t = JSON.parse(built.json);
+        if (Number(t.version) !== 1) throw new Error('The SDK did not keep transaction version 1; not signing that');
+        if ((t.inputs || []).some(i => Number(i.sigOpCount || 0) !== 0 || Number(i.computeBudget) !== GENESIS_COMPUTE_BUDGET))
+            throw new Error('The SDK did not keep the v1 compute budget on the inputs; not signing that');
+        if ((t.outputs || []).length !== 2) throw new Error('The SDK built an unexpected output count; not signing that');
+        const binding = genesisBindingOf(built.json);
+        if (!binding || !/^[0-9a-f]{64}$/.test(binding.covenantId) || binding.authorizingInput !== 0)
+            throw new Error('The SDK serialized out0 without its covenant binding; not signing that');
+        console.log(`[Genesis] built for contract ${c.id}: covenant ${binding.covenantId}, ${sompiToKasText(amount)} KAS, fee ${sompiToKasText(fee)} KAS`);
+        return res.json({
+            success: true, txJsonString: built.json, covenantId: binding.covenantId,
+            inputs: picked.length, amountKas: sompiToKasText(amount), feeKas: sompiToKasText(fee),
+            changeKas: sompiToKasText(total - amount - fee), contractAddress: c.contract_address
+        });
+    } catch (e) {
+        try { await rpc.disconnect(); } catch (_) {}
+        console.error('[Genesis] build failed:', e?.message || e);
+        return res.json({ success: false, error: e?.message || String(e) });
+    }
+});
+
+app.post('/api/genesis/broadcast', requireAuth, async (req, res) => {
+    const { token, txJsonString, expectCovenantId } = req.body || {};
+    if (typeof txJsonString !== 'string' || txJsonString.length < 50 || txJsonString.length > 200000)
+        return res.json({ success: false, error: 'txJsonString missing or malformed' });
+    const db = req.app.get('db') || req.app.locals.db;
+    let c;
+    try { c = await genesisContractByToken(db, token, req.walletAddress); }
+    catch (e) { return res.json({ success: false, error: 'DB error: ' + e.message }); }
+    if (!c) return res.status(404).json({ success: false, error: 'Contract not found or not yours' });
+
+    // The spike's real question: did the wallet hand the binding back untouched?
+    let binding = null;
+    try { binding = genesisBindingOf(txJsonString); } catch (_) {}
+    if (!binding) {
+        console.error('[Genesis] wallet returned out0 WITHOUT a covenant binding:', txJsonString.slice(0, 4000));
+        return res.json({ success: false, stage: 'binding', error: 'The wallet returned the transaction without the covenant binding on out0. Nothing was sent.' });
+    }
+    if (expectCovenantId && binding.covenantId !== String(expectCovenantId).toLowerCase()) {
+        console.error('[Genesis] covenant id changed in the wallet:', binding.covenantId, 'expected', expectCovenantId);
+        return res.json({ success: false, stage: 'binding', error: `The wallet returned a different covenant ID (${binding.covenantId}). Nothing was sent.` });
+    }
+
+    const { Transaction } = require(KASPA_SDK);
+    let tx;
+    try { tx = Transaction.deserializeFromSafeJSON(txJsonString); }
+    catch (e) {
+        console.error('[Genesis] deserialize failed:', e?.message || e, txJsonString.slice(0, 4000));
+        return res.json({ success: false, stage: 'deserialize', error: 'Transaction JSON rejected by the SDK: ' + (e?.message || String(e)) });
+    }
+    let rpc;
+    try { rpc = await genesisRpc(); }
+    catch (e) { return res.json({ success: false, error: 'Node unreachable: ' + (typeof e === 'string' ? e : e.message) }); }
+    try {
+        const result = await rpc.submitTransaction({ transaction: tx, allowOrphan: false });
+        await rpc.disconnect();
+        const txId = result?.transactionId || result?.txId || (typeof result === 'string' ? result : null);
+        try { await db.promise().query(`UPDATE contracts SET covenant_id = ? WHERE id = ?`, [binding.covenantId, c.id]); }
+        catch (e) { console.error('[Genesis] could not record covenant_id (migration run?):', e.message); }
+        console.log(`[Genesis] ✅ contract ${c.id} genesis accepted: ${txId}, covenant ${binding.covenantId}`);
+        return res.json({ success: true, txId, contractId: c.id, covenantId: binding.covenantId, explorerUrl: `${EXPLORER_BASE}/transactions/${txId}` });
+    } catch (e) {
+        try { await rpc.disconnect(); } catch (_) {}
+        const msg = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
+        console.error('[Genesis] node rejected:', msg, txJsonString.slice(0, 4000));
         return res.json({ success: false, stage: 'submit', error: 'Node rejected the transaction: ' + msg });
     }
 });
@@ -4759,5 +5368,6 @@ app.get('*', (req, res) => {
 
   app.listen(PORT, '127.0.0.1', () => {
     console.log(`SilverScript Studio running on http://localhost:${PORT}`);
+    ensureStatusTable().then(startStatusWatcher).catch(e => console.warn('[Status] table check failed; watcher not started:', e.message));
   });
 })();
