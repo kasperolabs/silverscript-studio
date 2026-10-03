@@ -1855,6 +1855,14 @@ async function renameWallet(id, label) {
                 if (hiddenInput) hiddenInput.value = Number.isFinite(t) ? String(t) : '';
                 updateDeployHints();
         }
+        // A temporal duration (period, delay) lands as plain milliseconds: number x unit
+        function selectParamDuration(paramName) {
+                const hiddenInput = document.getElementById(`deploy-param-${paramName}`);
+                const n = Number(String(document.getElementById(`deploy-param-${paramName}-n`)?.value || '').trim());
+                const unit = Number(document.getElementById(`deploy-param-${paramName}-u`)?.value || 0);
+                if (hiddenInput) hiddenInput.value = Number.isFinite(n) && n > 0 && unit > 0 ? String(Math.round(n * unit)) : '';
+                updateDeployHints();
+        }
         function kasTextToSompi(text) {
                 const t = String(text || '').trim().replace(/,/g, '');
                 if (!/^\d{1,12}(\.\d{1,8})?$/.test(t)) return '';
@@ -1874,6 +1882,8 @@ async function renameWallet(id, label) {
         //   int    — anything else
         // Falls back to the parameter's name when the source says nothing.
         function intParamKind(name, source) {
+                // Counts and ratios multiply money but are not money (periods, cutBps)
+                if (/bps|percent|pct|count|periods|qty|quantity/i.test(name)) return 'int';
                 const src = String(source || '');
                 const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const stmtsWith = re => src.split(/[;{}]/).filter(st => re.test(st));
@@ -2349,6 +2359,39 @@ function renderDeployField(param, prefillValue) {
           placeholder="0" value="${esc(pre)}"
           data-param-name="${esc(param.name)}" data-param-type="${esc(param.type)}">`;
         hint = 'A plain whole number; the source does not compare it with amounts or locks.';
+      }
+      break;
+    }
+    case 'temporal': {
+      // temporal is milliseconds: either a length of time (period, delay) or a moment (startAt)
+      if (/period|duration|delay|interval|span|window|length/i.test(param.name)) {
+        const units = [['minutes', 60000], ['hours', 3600000], ['days', 86400000], ['weeks', 604800000]];
+        const ms = Number(pre) || 0;
+        const best = units.slice().reverse().find(([, u]) => ms && ms % u === 0) || units[2];
+        const n = ms ? ms / best[1] : '';
+        inputHtml = `
+          <input type="hidden" id="${id}" value="${esc(pre)}"
+            data-param-name="${esc(param.name)}" data-param-type="${esc(param.type)}">
+          <div class="deploy-amount-group">
+            <input type="number" id="${id}-n" placeholder="7" min="0" step="any" value="${esc(String(n))}"
+              oninput="App.selectParamDuration('${esc(param.name)}')">
+            <select id="${id}-u" class="deploy-input" style="width:auto"
+              onchange="App.selectParamDuration('${esc(param.name)}')">
+              ${units.map(([l, u]) => `<option value="${u}" ${u === best[1] ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>`;
+        hint = 'A length of time. The contract stores it in milliseconds.';
+      } else {
+        const preIso = pre && Number(pre) > 0 ? new Date(Number(pre)).toISOString().slice(0, 16) : '';
+        inputHtml = `
+          <input type="hidden" id="${id}" value="${esc(pre)}"
+            data-param-name="${esc(param.name)}" data-param-type="${esc(param.type)}">
+          <div class="deploy-amount-group">
+            <input type="datetime-local" value="${esc(preIso)}"
+              oninput="App.selectParamDate('${esc(param.name)}', this.value)">
+            <span class="deploy-amount-unit">UTC</span>
+          </div>`;
+        hint = 'A moment in time (UTC). The contract stores it in milliseconds.';
       }
       break;
     }
@@ -5943,7 +5986,7 @@ function _showSafetyWarnings(warnings, constructorArgs) {
     insertSnippet, insertSnippetAtCursor, openSnippetAsFile, previewSnippet,
     toggleSnippetCategory, toggleSection,
     editorAction, toggleTheme, toggleBottomPanel, switchPanelTab,
-    closeAllFiles, showDeploy, selectTkas, selectFunder, selectParamTkas, selectParamKas, selectParamDays, selectParamDate, setHashMode, hashParamInput, deployContract, showDeployResult, showDeployRateLimit,
+    closeAllFiles, showDeploy, selectTkas, selectFunder, selectParamTkas, selectParamKas, selectParamDays, selectParamDate, selectParamDuration, setHashMode, hashParamInput, deployContract, showDeployResult, showDeployRateLimit,
     retryFund, retryConfirm, kaslaConfirmAnswer,
     showMyContracts, showContractDetail, redeployContract, redeemContract, _executeRedeem, _signAndBroadcastSpend, showReference, showShortcuts, showAbout, showLogin, logout,
     copyShareLink, _spendPathChanged, _submitPathForm, _retrySpend, _encToggle,

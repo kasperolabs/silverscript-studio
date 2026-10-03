@@ -1,4 +1,4 @@
-// BUILD MARKER: mc-tabs-2026-10-02b
+// BUILD MARKER: ads-step2-2026-10-03 (after ads-step1, transient-mass-2026-10-03, mc-tabs-2026-10-02b)
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -81,6 +81,11 @@ if (offers) {
 let kasdash = null;
 try { kasdash = require('./routes/kasdash'); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 if (kasdash) app.use('/api', kasdash.router);
+
+// Ad engine: routes/ads.js + public/ads* (private; kept out of the public copy). marker: ads-mount-2026-10-03
+let adsRoutes = null;
+try { adsRoutes = require('./routes/ads'); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+if (adsRoutes) app.use('/api/ads', adsRoutes.router);
 
 // ─── MySQL Connection ───────────────────────────────────────────────
 const mysql = require('mysql2');
@@ -1538,6 +1543,56 @@ app.post('/api/deploy', requireAuth, deployRateLimit, async (req, res) => {
         });
     });
 });
+
+// deployFromSource: the compile-and-save half of /api/deploy as a function, for add-on modules that
+// create contracts on a user's behalf with server-chosen terms (routes/ads.js). No wallet challenge here:
+// the caller has already authenticated the session and decides the arguments. Returns the new row.
+// marker: deploy-from-source-2026-10-03
+async function deployFromSource(db, { source, constructorArgs, walletAddress, funderRole = null, expectedDepositSompi = null }) {
+    if (!silvercAvailable) throw new Error('Compiler not available');
+    const run = (args, timeout) => new Promise((resolve, reject) =>
+        execFile(SILVERC_PATH, args, { timeout, maxBuffer: 10 * 1024 * 1024 }, (err, out, errOut) =>
+            err ? reject(new Error((errOut || err.message).trim())) : resolve(out)));
+    const tmpFile = path.join(os.tmpdir(), `ssd_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.sil`);
+    const argsFile = tmpFile.replace('.sil', '_args.json');
+    fs.writeFileSync(tmpFile, source);
+    try {
+        const ast = JSON.parse(await run([tmpFile, '--ast-only', '-c'], 10000));
+        const params = ast.params || [];
+        if (!Array.isArray(constructorArgs) || constructorArgs.length !== params.length)
+            throw new Error(`Expected ${params.length} constructor argument(s), got ${(constructorArgs || []).length}`);
+        const silvercArgs = params.map((p, i) => userValueToArtifactValue(p.type_ref, constructorArgs[i].value));
+        fs.writeFileSync(argsFile, JSON.stringify(silvercArgs));
+        const art = parseArtifact(JSON.parse(await run([tmpFile, '--constructor-args', argsFile, '-c'], 15000)), ast);
+        const redeemScript = Buffer.from(art.scriptBytes);
+        const scriptHash = blake2bHash(redeemScript);
+        const contractAddress = encodeBech32Address(NETWORK_PREFIX, 8, scriptHash);
+        const constructorParamsOut = params.map(p => ({ name: p.name, type: formatTypeRef(p.type_ref) }));
+        const functions = art.entries.map(fn => ({ name: fn.name, dispatchTag: fn.dispatchTag, inputs: fn.params }));
+        const abiJson = JSON.stringify({ contractParams: constructorParamsOut, functions, compiler: art.compiler });
+        const scriptHex = '0x' + redeemScript.toString('hex');
+        const q = (sql, v) => db.promise().query(sql, v).then(r => r[0]);
+
+        await q('INSERT INTO users (wallet_address) VALUES (?) ON DUPLICATE KEY UPDATE wallet_address = wallet_address', [walletAddress]);
+        const userId = (await q('SELECT id FROM users WHERE wallet_address = ?', [walletAddress]))[0].id;
+        const shareToken = newShareToken();
+        const ins = await q(
+            `INSERT INTO contracts (user_id, contract_name, contract_address, redeem_script_hex, script_hash_hex, abi, source_code, network,
+                                    funding_txid, funding_output_index, funding_amount_sompi, share_token, funder_role, expected_deposit_sompi)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?, ?)`,
+            [userId, art.contractName, contractAddress, scriptHex, '0x' + scriptHash.toString('hex'), abiJson, source, NETWORK_PREFIX,
+             shareToken, funderRole, expectedDepositSompi]);
+        const contractId = ins.insertId;
+        await q('INSERT INTO contract_params (contract_id, param_name, param_type, param_value) VALUES ?',
+            [constructorArgs.map((a, i) => [contractId, constructorParamsOut[i].name, constructorParamsOut[i].type, String(a.value)])]);
+        const parts = extractParticipants(constructorParamsOut, constructorArgs.map(a => a.value), NETWORK_PREFIX, walletAddress);
+        await new Promise(r => insertParticipants(db, contractId, parts, true, r));
+        return { contractId, contractAddress, contractName: art.contractName, shareToken, scriptHex, scriptSize: redeemScript.length };
+    } finally {
+        fs.unlink(tmpFile, () => {}); fs.unlink(argsFile, () => {});
+    }
+}
+app.locals.deployFromSource = deployFromSource;
 
 // Convert a user-provided value + declared type into a silverc v1 ArtifactValue
 function userValueToArtifactValue(typeRef, value) {
@@ -3475,6 +3530,11 @@ function preView(pre) {
 // The node's minimum relay fee per gram of compute mass (this node: 100; the
 // rejection message states it as required/mass). Override with MIN_FEE_SOMPI_PER_GRAM.
 const MIN_FEE_SOMPI_PER_GRAM = Number(process.env.MIN_FEE_SOMPI_PER_GRAM || 100);
+// transient-mass-2026-10-03: the node also prices "normalized transient mass", proportional to
+// the signed transaction's byte size. Measured from a rejection (AdRental, 1,386-byte redeem
+// script: 3,392 grams for a ~1,750-byte tx), so about 2 grams per byte. Big scripts make it the
+// largest of the three masses. Override with TRANSIENT_MASS_PER_BYTE if the node says otherwise.
+const TRANSIENT_MASS_PER_BYTE = Number(process.env.TRANSIENT_MASS_PER_BYTE || 2);
 
 // ─── Build an unsigned spend of a covenant path ──────────────────────
 // Shared by build-spend (one signer, signs and broadcasts in one go) and
@@ -3678,12 +3738,21 @@ async function prepareSpend({ c, fn, functions, userArgs, destination, amount, c
                 built = await build(decided);
                 const computeMass = built.mass + coins.length * (sigScriptBytes + (sigOps - 1) * 1000) + 64;
                 const storageMass = storageMassGrams(coins.map(amtOf), built.change > 0n ? [built.payout, built.change] : [built.payout]);
-                const needed = BigInt(Math.ceil(Math.max(computeMass, storageMass) * MIN_FEE_SOMPI_PER_GRAM));
+                // Signed byte size: the SDK's mass (empty sigScripts) less its output-script and
+                // sig-op terms (10/byte of each output script, at least 36 bytes, and 1000 per input),
+                // plus the signature scripts the wallet will add. Erring low on the output script
+                // errs high on the size, so the fee errs high.
+                const outCount = built.change > 0n ? 2 : 1;
+                const signedBytes = built.mass - outCount * 10 * 36 - coins.length * 1000 + coins.length * sigScriptBytes;
+                const transientMass = Math.ceil(Math.max(0, signedBytes) * TRANSIENT_MASS_PER_BYTE);
+                const baseMass = Math.max(computeMass, transientMass);
+                const needed = BigInt(Math.ceil(Math.max(baseMass, storageMass) * MIN_FEE_SOMPI_PER_GRAM));
+                if (round === 0) console.log(`[build-spend] masses: compute ${computeMass}, transient ~${transientMass} (${signedBytes} B), storage ${storageMass}`);
                 // A change-home path grants at most MAX_FEE; a fee above it fails the change rule on
                 // chain. The remedy is a bigger change coin: "All" pulls a little less, a figure that
                 // can't is refused with the one that can.
                 if (built.change > 0n && feeBudget !== null && needed > feeBudget) {
-                    const ceiling = maxPayoutUnderBudget(coins.map(amtOf), totalSompi, computeMass, feeBudget, MIN_FEE_SOMPI_PER_GRAM);
+                    const ceiling = maxPayoutUnderBudget(coins.map(amtOf), totalSompi, baseMass, feeBudget, MIN_FEE_SOMPI_PER_GRAM);
                     if (ceiling <= 0n) throw fail(`${fn.name} allows at most ${_kasTxt(feeBudget)} KAS in network fees per withdrawal, and any partial pull from this coin costs more than that at the current rate (a small change coin weighs a lot). Take all instead.`,
                                                   { badAmount: true, feeBudget: true });
                     if (!(legacy || amount.all)) throw fail(`${fn.name} allows at most ${_kasTxt(feeBudget)} KAS in network fees per withdrawal; taking ${_kasTxt(decided.payout)} KAS would leave a coin so small that the fee comes to ${_kasTxt(needed)} KAS. Ask for up to ${_kasTxt(ceiling)} KAS, or take all.`,
@@ -5353,6 +5422,18 @@ app.post('/api/ksm/import', requireAuth, async (req, res) => {
 app.get('/c/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'covenant.html'));
 });
+
+// ─── Studio helpers for add-on modules (routes/ads.js builds state-continuing spends) ───
+// marker: studio-locals-2026-10-03
+app.locals.studio = {
+    sdk: () => require(KASPA_SDK),
+    NET_ID: IS_MAINNET ? 'mainnet' : 'testnet-12',
+    MIN_FEE_SOMPI_PER_GRAM, TRANSIENT_MASS_PER_BYTE,
+    pushDataHex, encodeScriptArg, storageMassGrams,
+    // P2SH address and script hash of a redeem script, the same way /api/deploy derives them
+    p2shAddress: (redeemBuf) => encodeBech32Address(NETWORK_PREFIX, 8, blake2bHash(redeemBuf)),
+    scriptHashHex: (redeemBuf) => '0x' + blake2bHash(redeemBuf).toString('hex')
+};
 
 // ─── Fallback ──────────────────────────────────────────────────────
 app.get('*', (req, res) => {
