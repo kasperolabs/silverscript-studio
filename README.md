@@ -134,7 +134,7 @@ Please report security issues privately to the maintainer rather than in a publi
 
 ## Credits
 
-SilverScript is by Michael Sutton and the Kaspa core developers ([kaspanet/silverscript](https://github.com/kaspanet/silverscript)). The Studio is built by Kaspero Labs.
+SilverScript is by Ori Newman, Michael Sutton and the Kaspa core developers ([kaspanet/silverscript](https://github.com/kaspanet/silverscript)). The Studio is built by Kaspero Labs.
 
 ## License
 
