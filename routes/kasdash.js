@@ -186,9 +186,13 @@ router.post('/kasdash/:token/release', async (req, res) => {
                 return { error: 'The SDK built a different transaction than the covenant requires; not sending it' };
 
             const fee = amtOf(coin) - sum;
-            const compute = mass + sigScript.length / 2 + 64;
+            // relay-fee-2026-10-04: the node prices compute/transient mass, not storage mass
+            // (server.js relayFeeFor); storage mass only has to stay under the per-transaction limit
+            const st = req.app.locals.studio;
             const storage = storageMassGrams([amtOf(coin)], outs);
-            const needed = BigInt(Math.ceil(Math.max(compute, storage) * MIN_FEE_SOMPI_PER_GRAM));
+            if (st && storage > st.MAX_STANDARD_TX_MASS) return { error: 'A payout in this order is too small for the network (storage mass over the limit); it can only be refunded.' };
+            const needed = st ? st.relayFeeFor(t, sigScript.length / 2).fee
+                              : BigInt(Math.ceil(Math.max(mass + sigScript.length / 2 + 64, storage) * MIN_FEE_SOMPI_PER_GRAM));
             if (fee < needed) return { error: `The deposit left ${kasTxt(fee)} KAS for the network fee and the node wants ${kasTxt(needed)} KAS. The covenant allows no other outputs, so this order can only be refunded.` };
 
             t.inputs[0].signatureScript = sigScript;

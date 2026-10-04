@@ -1,4 +1,4 @@
-// BUILD MARKER: ads-step2-2026-10-03 (after ads-step1, transient-mass-2026-10-03, mc-tabs-2026-10-02b)
+// BUILD MARKER: relay-fee-2026-10-04 (after ads-step2-2026-10-03, ads-step1, transient-mass-2026-10-03, mc-tabs-2026-10-02b)
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -3536,6 +3536,38 @@ const MIN_FEE_SOMPI_PER_GRAM = Number(process.env.MIN_FEE_SOMPI_PER_GRAM || 100)
 // largest of the three masses. Override with TRANSIENT_MASS_PER_BYTE if the node says otherwise.
 const TRANSIENT_MASS_PER_BYTE = Number(process.env.TRANSIENT_MASS_PER_BYTE || 2);
 
+// marker: relay-fee-2026-10-04
+// The node's relay floor prices max(compute mass, normalized transient mass) and NOT storage mass
+// (rusty-kaspa a41a333 mining/src/mempool/check_transaction_standard.rs:129-146: "Storage mass does
+// not require an additional relay-fee floor"). The SDK's calculateTransactionMass returns
+// max(compute, storage) (wallet/core/src/tx/mass.rs:299-309), so it can't be used for the fee.
+// Storage mass still has to stay under the standard per-transaction mass limit.
+// Proven on mainnet Oct 4, 2026: a three-output spend with 26,095 g of storage mass was accepted at
+// 0.00367801 KAS (compute mass only) and mined in 2 s.
+const MAX_STANDARD_TX_MASS = 100000;
+// Compute mass of a transaction from its safe JSON, the SDK's formula (wallet/core/src/tx/mass.rs):
+// bytes x 1 + 10 per scriptPubKey byte (+2 version) + 1000 per sig op. `sigScriptBytes` is the final
+// signature-script size per input (a number for all inputs, or an array). Returns
+// { bytes, compute, transient, fee } with fee in sompi (BigInt) at the node's floor.
+function relayFeeFor(txJson, sigScriptBytes, extraSigOps = 0) {
+    const t = typeof txJson === 'string' ? JSON.parse(txJson) : txJson;
+    const ins = t.inputs || [], outs = t.outputs || [];
+    const sigLen = i => Number(Array.isArray(sigScriptBytes) ? sigScriptBytes[i] : sigScriptBytes) || 0;
+    const scriptLen = o => {
+        const spk = o.scriptPublicKey;
+        if (spk && typeof spk === 'object') return String(spk.script || '').replace(/^0x/i, '').length / 2;
+        return Math.max(0, String(spk || '').replace(/^0x/i, '').length / 2 - 2);     // "vvvv" version + script
+    };
+    let bytes = 2 + 8 + 8 + 8 + 20 + 8 + 32 + 8 + String(t.payload || '').length / 2;
+    let compute = 0, sigOps = extraSigOps;
+    ins.forEach((inp, i) => { bytes += 36 + 8 + sigLen(i) + 8; sigOps += Number(inp.sigOpCount || 0); });
+    for (const o of outs) { const L = scriptLen(o); bytes += 8 + 2 + 8 + L; compute += 10 * (2 + L); }
+    compute += bytes + 1000 * sigOps;
+    const transient = Math.ceil(bytes * TRANSIENT_MASS_PER_BYTE);
+    // +64 g margin, the same slack the Studio always added to the SDK's estimate
+    return { bytes, compute, transient, fee: BigInt(Math.ceil((Math.max(compute, transient) + 64) * MIN_FEE_SOMPI_PER_GRAM)) };
+}
+
 // ─── Build an unsigned spend of a covenant path ──────────────────────
 // Shared by build-spend (one signer, signs and broadcasts in one go) and
 // proposals (several signers, signatures collected over time). Returns the
@@ -3736,18 +3768,15 @@ async function prepareSpend({ c, fn, functions, userArgs, destination, amount, c
             for (let round = 0; ; round++) {
                 decided = decide(feeSompi);
                 built = await build(decided);
-                const computeMass = built.mass + coins.length * (sigScriptBytes + (sigOps - 1) * 1000) + 64;
+                // relay-fee-2026-10-04: the fee covers compute/transient mass only (see relayFeeFor);
+                // storage mass is checked against the per-transaction limit, not priced
+                const rf = relayFeeFor(built.json, sigScriptBytes, coins.length * (sigOps - 1));
+                const computeMass = rf.compute, transientMass = rf.transient, signedBytes = rf.bytes;
                 const storageMass = storageMassGrams(coins.map(amtOf), built.change > 0n ? [built.payout, built.change] : [built.payout]);
-                // Signed byte size: the SDK's mass (empty sigScripts) less its output-script and
-                // sig-op terms (10/byte of each output script, at least 36 bytes, and 1000 per input),
-                // plus the signature scripts the wallet will add. Erring low on the output script
-                // errs high on the size, so the fee errs high.
-                const outCount = built.change > 0n ? 2 : 1;
-                const signedBytes = built.mass - outCount * 10 * 36 - coins.length * 1000 + coins.length * sigScriptBytes;
-                const transientMass = Math.ceil(Math.max(0, signedBytes) * TRANSIENT_MASS_PER_BYTE);
                 const baseMass = Math.max(computeMass, transientMass);
-                const needed = BigInt(Math.ceil(Math.max(baseMass, storageMass) * MIN_FEE_SOMPI_PER_GRAM));
-                if (round === 0) console.log(`[build-spend] masses: compute ${computeMass}, transient ~${transientMass} (${signedBytes} B), storage ${storageMass}`);
+                const needed = rf.fee;
+                if (round === 0) console.log(`[build-spend] masses: compute ${computeMass}, transient ${transientMass} (${signedBytes} B), storage ${storageMass} (not priced)`);
+                if (storageMass > MAX_STANDARD_TX_MASS) throw fail(`That split leaves an output too small for the network (storage mass ${storageMass} over ${MAX_STANDARD_TX_MASS}). Take all, or leave at least ${_kasTxt(MIN_CHANGE_SOMPI)} KAS.`, { badAmount: true });
                 // A change-home path grants at most MAX_FEE; a fee above it fails the change rule on
                 // chain. The remedy is a bigger change coin: "All" pulls a little less, a figure that
                 // can't is refused with the one that can.
@@ -4032,14 +4061,15 @@ function changeFeeBudget(redeemHex, tagHex, selectorIdx) {
     }
     return null;
 }
-// Largest payout whose partial pull stays under a fee budget: the change coin must be big
-// enough that storage mass (and compute mass) priced at the node's rate fits in `budget`.
+// Largest payout whose partial pull stays under a fee budget. relay-fee-2026-10-04: the fee is priced
+// on compute mass only, so the budget either fits or it doesn't; the change coin must still be big
+// enough to keep storage mass under the per-transaction limit.
 function maxPayoutUnderBudget(ins, totalSompi, computeMass, budget, rate) {
     const feasible = (payout) => {
         const change = totalSompi - payout - budget;
         if (change < MIN_CHANGE_SOMPI) return false;
-        const mass = Math.max(computeMass, storageMassGrams(ins, [payout, change]));
-        return BigInt(Math.ceil(mass * rate)) <= budget;
+        if (storageMassGrams(ins, [payout, change]) > MAX_STANDARD_TX_MASS) return false;
+        return BigInt(Math.ceil(computeMass * rate)) <= budget;
     };
     // Storage mass is high when either output is small, lowest when payout and change are
     // equal, so the feasible payouts (if any) form one interval around the midpoint; from
@@ -4991,9 +5021,13 @@ app.post('/api/genesis/build', requireAuth, async (req, res) => {
         let fee = 2000000n, built;                                               // start at 0.02 KAS, settle below
         for (let round = 0; ; round++) {
             built = build(total - amount - fee);
-            const computeMass = built.mass + picked.length * 66 + 64;              // + P2PK signature scripts
+            // relay-fee-2026-10-04: compute mass only (+ P2PK signature scripts), and the v1 compute
+            // budget the inputs commit; storage mass is a limit, not a price
+            const rf = relayFeeFor(built.json, 66);
+            const computeMass = Math.max(rf.compute, picked.length * GENESIS_COMPUTE_BUDGET * 100);
             const storageMass = storageMassGrams(picked.map(amtOf), [amount, total - amount - fee]);
-            const needed = BigInt(Math.ceil(Math.max(computeMass, storageMass) * MIN_FEE_SOMPI_PER_GRAM));
+            if (storageMass > MAX_STANDARD_TX_MASS) throw new Error('The change left in your wallet would be too small for the network; deposit a little less or a little more');
+            const needed = BigInt(Math.ceil(Math.max(computeMass, rf.transient) * MIN_FEE_SOMPI_PER_GRAM));
             if (fee >= needed) break;
             if (round >= 6) throw new Error(`Could not settle the network fee (node wants ${sompiToKasText(needed)} KAS)`);
             fee = needed;
@@ -5430,6 +5464,7 @@ app.locals.studio = {
     NET_ID: IS_MAINNET ? 'mainnet' : 'testnet-12',
     MIN_FEE_SOMPI_PER_GRAM, TRANSIENT_MASS_PER_BYTE,
     pushDataHex, encodeScriptArg, storageMassGrams,
+    relayFeeFor, MAX_STANDARD_TX_MASS,                                     // relay-fee-2026-10-04
     // P2SH address and script hash of a redeem script, the same way /api/deploy derives them
     p2shAddress: (redeemBuf) => encodeBech32Address(NETWORK_PREFIX, 8, blake2bHash(redeemBuf)),
     scriptHashHex: (redeemBuf) => '0x' + blake2bHash(redeemBuf).toString('hex')
